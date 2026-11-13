@@ -40,9 +40,9 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .processes:
             return "Processes"
         case .location:
-            return "Location"
+            return "Carte"
         case .settings:
-            return "Settings"
+            return "Réglages"
         }
     }
 
@@ -133,6 +133,6 @@ enum AppFeature: String, CaseIterable, Identifiable {
 }
 
 extension AppFeature {
-    static let mainTabs: [AppFeature] = [.home, .tools, .settings]
+    static let mainTabs: [AppFeature] = [.location, .settings]
     static let toolList: [AppFeature] = [.launchApps, .scripts, .console, .deviceInfo, .profiles, .processes, .location]
 }

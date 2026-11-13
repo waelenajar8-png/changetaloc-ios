@@ -17,7 +17,7 @@
 		</dict>
 	</array>
 		<key>NSLocalNetworkUsageDescription</key>
-	<string>StikDebug discovers this iPhone's Remote Pairing service to enable JIT.</string>
+	<string>ChangeTaLoc utilise le réseau local pour se connecter à cet iPhone.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_remotepairing._tcp</string>
