@@ -56,7 +56,7 @@ struct SettingsView: View {
                                 .resizable().aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 80)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            Text("StikDebug").font(.title2.weight(.semibold))
+                            Text("ChangeTaLoc").font(.title2.weight(.semibold))
                         }
                         Spacer()
                     }
@@ -64,23 +64,17 @@ struct SettingsView: View {
                     .padding(.vertical, 8)
                 }
 
-                Section {
-                    Link(destination: SettingsLinks.githubStars) {
-                        Label("Star on GitHub", systemImage: "star")
-                    }
-                }
-
-                Section("Pairing File") {
+                Section("Connexion à l'iPhone") {
                     NavigationLink {
                         OnDevicePairingView(service: onDevicePairing)
                     } label: {
-                        Label("Pair a Device", systemImage: "iphone.and.arrow.forward")
+                        Label("Associer cet iPhone", systemImage: "iphone.and.arrow.forward")
                     }
 
                     Button {
                         isShowingPairingFilePicker = true
                     } label: {
-                        Label("Import Pairing File", systemImage: "doc.badge.plus")
+                        Label("Importer le fichier de jumelage", systemImage: "doc.badge.plus")
                     }
                     .disabled(isImportingFile)
 
@@ -88,7 +82,7 @@ struct SettingsView: View {
                         HStack(spacing: 10) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Importing pairing file…")
+                            Text("Import du fichier de jumelage…")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -105,8 +99,8 @@ struct SettingsView: View {
                 Section {
                     Toggle(isOn: $keepAliveAudio) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Silent Audio")
-                            Text("Plays inaudible audio so iOS keeps the app running.")
+                            Text("Audio silencieux")
+                            Text("Garde l'app active en arrière-plan grâce à un son inaudible.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -116,8 +110,8 @@ struct SettingsView: View {
 
                     Toggle(isOn: $keepAliveLocation) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Background Location")
-                            Text("Uses low-accuracy location to stay alive when an activity needs it.")
+                            Text("Position en arrière-plan")
+                            Text("Garde ta position choisie active quand tu utilises une autre app.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -126,65 +120,12 @@ struct SettingsView: View {
                     }
 
                 } header: {
-                    Text("Background Keep-Alive")
+                    Text("Rester actif en arrière-plan")
                 }
 
-                Section("Behavior") {
-                    Toggle(isOn: $confirmExternalJITRequests) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Confirm JIT Links")
-                            Text("Ask before external links enable JIT or run scripts.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Toggle(isOn: $overrideTXMDetection) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Always Run Scripts")
-                            Text("Treats device as TXM-capable to bypass hardware checks.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("Debugging") {
-                    Toggle(isOn: $mallocDebug) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Malloc Debugging")
-                            Text("Attaches processes with MallocGuardEdges and MallocScribble to detect memory corruption.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("Advanced") {
-                    HStack {
-                        Text("Target Device IP")
-                        Spacer()
-                        TextField(DeviceConnectionContext.defaultTargetIPAddress, text: $targetDeviceIPInput)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .keyboardType(.decimalPad)
-                            .focused($focusedConnectionField, equals: .address)
-                            .frame(maxWidth: 160)
-                    }
-                    HStack {
-                        Text("Remote Pairing Port")
-                        Spacer()
-                        TextField(automaticPortPlaceholder, text: $remotePairingPortInput)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .keyboardType(.numberPad)
-                            .focused($focusedConnectionField, equals: .port)
-                            .frame(maxWidth: 160)
-                    }
-                    Button { openAppFolder() } label: {
-                        Label("App Folder", systemImage: "folder")
-                    }.foregroundStyle(.primary)
+                Section("Dépannage") {
                     Button { showDDIConfirmation = true } label: {
-                        Label("Redownload DDI", systemImage: "arrow.down.circle")
+                        Label("Réparer la connexion", systemImage: "arrow.down.circle")
                     }.foregroundStyle(.primary).disabled(isRedownloadingDDI)
                     if isRedownloadingDDI {
                         VStack(alignment: .leading, spacing: 4) {
@@ -196,15 +137,15 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Help") {
-                    Link(destination: SettingsLinks.pairingFileGuide) {
-                        Label("Pairing File Guide", systemImage: "questionmark.circle")
-                    }
+                Section("Aide") {
                     Button(action: connectLocalDevVPN) {
-                        Label("Connect LocalDevVPN", systemImage: "network")
+                        Label("Ouvrir LocalDevVPN", systemImage: "network")
                     }
-                    Link(destination: SettingsLinks.discord) {
-                        Label("Discord Support", systemImage: "bubble.left.and.bubble.right")
+                    Link(destination: URL(string: "https://changetaloc.com/aide")!) {
+                        Label("Aide et contact", systemImage: "questionmark.circle")
+                    }
+                    Link(destination: URL(string: "https://github.com/waelenajar8-png/changetaloc-ios")!) {
+                        Label("Code source et licences", systemImage: "doc.text")
                     }
                 }
 
@@ -215,7 +156,7 @@ struct SettingsView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("Réglages")
             .background(KeyboardTapDismissal())
             .scrollDismissesKeyboard(.interactively)
         }
@@ -271,13 +212,13 @@ struct SettingsView: View {
                 schedulePairingStatusDismiss()
             }
         }
-        .confirmationDialog("Redownload DDI Files?", isPresented: $showDDIConfirmation, titleVisibility: .visible) {
-            Button("Redownload", role: .destructive) {
+        .confirmationDialog("Réparer la connexion ?", isPresented: $showDDIConfirmation, titleVisibility: .visible) {
+            Button("Réparer", role: .destructive) {
                 redownloadDDIPressed()
             }
-            Button("Cancel", role: .cancel) { }
+            Button("Annuler", role: .cancel) { }
         } message: {
-            Text("Existing DDI files will be removed before downloading fresh copies.")
+            Text("Les fichiers de connexion seront retéléchargés. Garde une connexion Internet.")
         }
     }
 
