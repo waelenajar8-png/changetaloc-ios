@@ -125,7 +125,9 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .processes:
             ProcessInspectorView()
         case .location:
-            LocationSimulationView()
+            NavigationStack {
+                LocationSimulationView()
+            }
         case .settings:
             SettingsView()
         }

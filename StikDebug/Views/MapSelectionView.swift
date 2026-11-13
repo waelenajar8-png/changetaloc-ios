@@ -47,6 +47,56 @@ private enum RouteSimulationDefaults {
     static let importedRouteFallbackSpeedMetersPerSecond: CLLocationSpeed = 13.4
 }
 
+/// Façon de se déplacer le long d'un trajet. Fixe la vitesse et le type d'itinéraire.
+private enum TravelMode: String, CaseIterable, Identifiable {
+    case walk, bike, car, custom, boat, plane
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .walk: return "À pied"
+        case .bike: return "Vélo"
+        case .car: return "Voiture"
+        case .custom: return "Vitesse libre"
+        case .boat: return "Bateau"
+        case .plane: return "Avion"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .walk: return "figure.walk"
+        case .bike: return "bicycle"
+        case .car: return "car.fill"
+        case .custom: return "speedometer"
+        case .boat: return "ferry.fill"
+        case .plane: return "airplane"
+        }
+    }
+
+    /// Le bateau et l'avion vont en ligne droite ; les autres suivent les routes.
+    var followsRoads: Bool {
+        self != .boat && self != .plane
+    }
+
+    var transportType: MKDirectionsTransportType {
+        (self == .walk || self == .bike) ? .walking : .automobile
+    }
+
+    /// Vitesse imposée en mètres par seconde. `nil` : on suit la limitation de chaque route.
+    func fixedSpeed(customKmh: Double) -> CLLocationSpeed? {
+        switch self {
+        case .walk: return 5.0 / 3.6
+        case .bike: return 18.0 / 3.6
+        case .car: return nil
+        case .custom: return max(customKmh, 1.0) / 3.6
+        case .boat: return 40.0 / 3.6
+        case .plane: return 850.0 / 3.6
+        }
+    }
+}
+
 private struct RoutePlaybackSample {
     let coordinate: CLLocationCoordinate2D
     let delayFromPrevious: TimeInterval
@@ -336,6 +386,17 @@ private func buildPlaybackSamples(
     }
 
     return samples
+}
+
+private func fixedSpeedPlaybackSamples(
+    displayCoordinates: [CLLocationCoordinate2D],
+    speedMetersPerSecond: CLLocationSpeed
+) async -> [RoutePlaybackSample] {
+    buildPlaybackSamples(
+        from: displayCoordinates,
+        speedWays: [],
+        fallbackSpeedMetersPerSecond: speedMetersPerSecond
+    )
 }
 
 private func prefetchRoutePlaybackSamples(
@@ -749,6 +810,11 @@ struct LocationSimulationView: View {
 
     @State private var searchText = ""
     @StateObject private var searchCompleter = LocationSearchCompleter()
+    @AppStorage("travelMode") private var travelModeRaw = TravelMode.car.rawValue
+    @AppStorage("customSpeedKmh") private var customSpeedKmh = 50.0
+    private var travelMode: TravelMode {
+        TravelMode(rawValue: travelModeRaw) ?? .car
+    }
     @State private var showCoordinateImporter = false
     @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
@@ -858,7 +924,7 @@ struct LocationSimulationView: View {
     }
 
     private var searchResultsListBase: some View {
-        List(searchCompleter.results.prefix(5), id: \.self) { result in
+        List(searchCompleter.results.prefix(8), id: \.self) { result in
             Button {
                 selectSearchResult(result)
             } label: {
@@ -900,15 +966,15 @@ struct LocationSimulationView: View {
                                 .stroke(.blue.opacity(0.8), lineWidth: 5)
                         }
                         if let routeStartCoordinate {
-                            Marker("Start", coordinate: routeStartCoordinate)
+                            Marker("Départ", coordinate: routeStartCoordinate)
                                 .tint(.green)
                         }
                         if let routeEndCoordinate {
-                            Marker("End", coordinate: routeEndCoordinate)
+                            Marker("Arrivée", coordinate: routeEndCoordinate)
                                 .tint(.red)
                         }
                         if let displayedRouteCoordinate {
-                            Marker("Current", coordinate: displayedRouteCoordinate)
+                            Marker("Toi", coordinate: displayedRouteCoordinate)
                                 .tint(.blue)
                         }
                     } else if let coordinate {
@@ -1022,7 +1088,7 @@ struct LocationSimulationView: View {
                 .accessibilityLabel("Import Coordinates")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                TextField("Search location...", text: $searchText)
+                TextField("Ville, adresse, lieu…", text: $searchText)
                     .padding(.leading, 6)
                     .autocorrectionDisabled()
                     .submitLabel(.go)
@@ -1286,7 +1352,7 @@ struct LocationSimulationView: View {
                     .tint(.red)
                     .disabled(!pairingExists || isBusy || !hasActiveSimulation)
 
-                Button("Simulate Location", action: simulate)
+                Button("Y aller", action: simulate)
                     .buttonStyle(.borderedProminent)
                     .disabled(!pairingExists || isBusy || isLoadingRoute)
 
@@ -1300,7 +1366,7 @@ struct LocationSimulationView: View {
                 .disabled(isRouteRunning)
             }
         } else {
-            Text("Tap map to drop pin")
+            Text("Cherche un lieu ou touche la carte")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -1323,13 +1389,38 @@ struct LocationSimulationView: View {
 
             routeAttributionLink
 
+            Picker("Mode de déplacement", selection: $travelModeRaw) {
+                ForEach(TravelMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.systemImage).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(isBusy || isRouteRunning)
+            .onChange(of: travelModeRaw) { _, _ in
+                refreshRoute()
+            }
+
+            if travelMode == .custom {
+                HStack(spacing: 10) {
+                    Slider(value: $customSpeedKmh, in: 1...300, step: 1) { editing in
+                        if !editing {
+                            refreshRoute()
+                        }
+                    }
+                    .disabled(isBusy || isRouteRunning)
+                    Text("\(Int(customSpeedKmh)) km/h")
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             HStack(spacing: 12) {
                 Button("Stop", action: clear)
                     .buttonStyle(.bordered)
                     .tint(.red)
                     .disabled(!pairingExists || isBusy || !hasActiveSimulation)
 
-                Button("Play Route", action: simulateRoute)
+                Button("Lancer le trajet", action: simulateRoute)
                     .buttonStyle(.borderedProminent)
                     .disabled(
                         !pairingExists ||
@@ -1340,7 +1431,7 @@ struct LocationSimulationView: View {
                         routePlaybackSamples.isEmpty
                     )
 
-                Button("Reset", action: resetRouteSelection)
+                Button("Effacer", action: resetRouteSelection)
                     .buttonStyle(.bordered)
                     .disabled(isBusy || isRouteRunning)
             }
@@ -1506,6 +1597,36 @@ struct LocationSimulationView: View {
 
         let requestID = UUID()
         routeRequestID = requestID
+        let mode = travelMode
+        let fixedSpeed = mode.fixedSpeed(customKmh: customSpeedKmh)
+
+        if !mode.followsRoads {
+            // Bateau et avion : ligne droite entre le départ et l'arrivée.
+            let speed = fixedSpeed ?? 13.4
+            let distance = CLLocation(latitude: routeStart.latitude, longitude: routeStart.longitude)
+                .distance(from: CLLocation(latitude: routeEnd.latitude, longitude: routeEnd.longitude))
+            let spacing = max(RouteSimulationDefaults.pathSamplingDistance, distance / 2000)
+            let displayCoordinates = sampledRouteCoordinates(from: [routeStart, routeEnd], targetDistance: spacing)
+            setRoutePlan(
+                RouteSimulationPlan(
+                    displayCoordinates: displayCoordinates,
+                    distance: distance,
+                    expectedTravelTime: distance / speed
+                )
+            )
+            routePlaybackSamples = buildPlaybackSamples(
+                from: displayCoordinates,
+                speedWays: [],
+                fallbackSpeedMetersPerSecond: speed
+            )
+            isLoadingRoute = false
+            isPrefetchingRouteSpeeds = false
+            if let routePolyline {
+                position = .rect(routePolyline.boundingMapRect)
+            }
+            return
+        }
+
         isLoadingRoute = true
         isPrefetchingRouteSpeeds = false
 
@@ -1513,7 +1634,7 @@ struct LocationSimulationView: View {
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: routeStart))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: routeEnd))
         request.requestsAlternateRoutes = false
-        request.transportType = .automobile
+        request.transportType = mode.transportType
 
         routeLoadTask = Task {
             do {
@@ -1534,7 +1655,7 @@ struct LocationSimulationView: View {
                 let routePlan = RouteSimulationPlan(
                     displayCoordinates: displayCoordinates,
                     distance: route.distance,
-                    expectedTravelTime: route.expectedTravelTime
+                    expectedTravelTime: fixedSpeed.map { route.distance / $0 } ?? route.expectedTravelTime
                 )
 
                 await MainActor.run {
@@ -1555,10 +1676,18 @@ struct LocationSimulationView: View {
                     guard routeRequestID == requestID else { return }
                     routeSpeedPrefetchTask?.cancel()
                     routeSpeedPrefetchTask = Task.detached(priority: .utility) {
-                        let playbackSamples = await prefetchRoutePlaybackSamples(
-                            displayCoordinates: displayCoordinates,
-                            fallbackSpeedMetersPerSecond: fallbackSpeed
-                        )
+                        let playbackSamples: [RoutePlaybackSample]
+                        if let fixedSpeed {
+                            playbackSamples = await fixedSpeedPlaybackSamples(
+                                displayCoordinates: displayCoordinates,
+                                speedMetersPerSecond: fixedSpeed
+                            )
+                        } else {
+                            playbackSamples = await prefetchRoutePlaybackSamples(
+                                displayCoordinates: displayCoordinates,
+                                fallbackSpeedMetersPerSecond: fallbackSpeed
+                            )
+                        }
                         guard !Task.isCancelled else { return }
                         await MainActor.run {
                             guard routeRequestID == requestID else { return }
