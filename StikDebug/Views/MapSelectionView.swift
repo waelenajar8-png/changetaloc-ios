@@ -800,6 +800,7 @@ struct LocationSimulationView: View {
     @State private var routeLoadTask: Task<Void, Never>?
     @State private var routeSpeedPrefetchTask: Task<Void, Never>?
     @State private var routePlaybackTask: Task<Void, Never>?
+    @State private var autoReturnTask: Task<Void, Never>?
     @State private var isBusy = false
     @State private var isLoadingRoute = false
     @State private var isPrefetchingRouteSpeeds = false
@@ -1069,7 +1070,7 @@ struct LocationSimulationView: View {
                 Button {
                     showBookmarks = true
                 } label: {
-                    Image(systemName: "bookmark.fill")
+                    Image(systemName: "list.star")
                 }
 
                 Button {
@@ -1115,6 +1116,9 @@ struct LocationSimulationView: View {
         .sheet(isPresented: $showBookmarks) {
             BookmarksView(bookmarks: $bookmarks) { bookmark in
                 applySelection(bookmark.coordinate)
+                showBookmarks = false
+            } onSelectDestination: { coordinate in
+                applySelection(coordinate)
                 showBookmarks = false
             } onDelete: { offsets in
                 bookmarks.remove(atOffsets: offsets)
@@ -1508,6 +1512,8 @@ struct LocationSimulationView: View {
 
     private func clear() {
         guard pairingExists, !isBusy else { return }
+        autoReturnTask?.cancel()
+        autoReturnTask = nil
         routeLoadTask?.cancel()
         routeLoadTask = nil
         routeSpeedPrefetchTask?.cancel()
@@ -1540,9 +1546,39 @@ struct LocationSimulationView: View {
     private func startResendLoop(with coordinate: CLLocationCoordinate2D) {
         simulatedCoordinate = coordinate
         LocationSimulationSession.shared.startResending(at: coordinate) {
+            // Micro-mouvements : la position bouge de quelques mètres, comme un vrai téléphone posé.
+            let target = UserDefaults.standard.bool(forKey: "microMovements")
+                ? jitteredCoordinate(around: coordinate)
+                : coordinate
             LocationSimulationCommandQueue.shared.async {
-                _ = locationUpdateCode(for: coordinate)
+                _ = locationUpdateCode(for: target)
             }
+        }
+        scheduleAutoReturn()
+    }
+
+    private func jitteredCoordinate(around coordinate: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
+        let meters = 3.0
+        let latitudeOffset = Double.random(in: -meters...meters) / 111_111
+        let longitudeScale = max(cos(coordinate.latitude * .pi / 180), 0.01)
+        let longitudeOffset = Double.random(in: -meters...meters) / (111_111 * longitudeScale)
+        return CLLocationCoordinate2D(
+            latitude: coordinate.latitude + latitudeOffset,
+            longitude: coordinate.longitude + longitudeOffset
+        )
+    }
+
+    // Retour automatique : la vraie position revient seule après la durée choisie dans Réglages.
+    private func scheduleAutoReturn() {
+        autoReturnTask?.cancel()
+        autoReturnTask = nil
+        let minutes = UserDefaults.standard.integer(forKey: "autoReturnMinutes")
+        guard minutes > 0 else { return }
+        autoReturnTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            autoReturnTask = nil
+            clear()
         }
     }
 
@@ -2022,44 +2058,183 @@ private struct RouteSearchSheet: View {
 
 // MARK: - Bookmarks Sheet
 
+private struct Destination: Identifiable {
+    enum Category: String, CaseIterable, Identifiable {
+        case all = "Tout"
+        case city = "Villes"
+        case beach = "Plages"
+        case luxury = "Luxe"
+        case landmark = "Lieux"
+
+        var id: String { rawValue }
+    }
+
+    let flag: String
+    let name: String
+    let country: String
+    let category: Category
+    let latitude: Double
+    let longitude: Double
+
+    var id: String { name }
+    var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
+
+    static let all: [Destination] = [
+        Destination(flag: "🇦🇪", name: "Dubaï, Burj Khalifa", country: "Émirats arabes unis", category: .landmark, latitude: 25.1972, longitude: 55.2744),
+        Destination(flag: "🇦🇪", name: "Dubaï, Palm Jumeirah", country: "Émirats arabes unis", category: .luxury, latitude: 25.1304, longitude: 55.1171),
+        Destination(flag: "🇫🇷", name: "Paris, tour Eiffel", country: "France", category: .landmark, latitude: 48.8584, longitude: 2.2945),
+        Destination(flag: "🇫🇷", name: "Paris, Champs-Élysées", country: "France", category: .city, latitude: 48.8698, longitude: 2.3078),
+        Destination(flag: "🇲🇨", name: "Monaco, casino de Monte-Carlo", country: "Monaco", category: .luxury, latitude: 43.7392, longitude: 7.4278),
+        Destination(flag: "🇫🇷", name: "Saint-Tropez, le port", country: "France", category: .luxury, latitude: 43.2727, longitude: 6.6386),
+        Destination(flag: "🇫🇷", name: "Cannes, la Croisette", country: "France", category: .beach, latitude: 43.5494, longitude: 7.0281),
+        Destination(flag: "🇫🇷", name: "Courchevel 1850", country: "France", category: .luxury, latitude: 45.4153, longitude: 6.6347),
+        Destination(flag: "🇫🇷", name: "Marseille, Vieux-Port", country: "France", category: .city, latitude: 43.2951, longitude: 5.3744),
+        Destination(flag: "🇫🇷", name: "Nice, promenade des Anglais", country: "France", category: .beach, latitude: 43.6950, longitude: 7.2650),
+        Destination(flag: "🇺🇸", name: "New York, Times Square", country: "États-Unis", category: .city, latitude: 40.7580, longitude: -73.9855),
+        Destination(flag: "🇺🇸", name: "Los Angeles, Beverly Hills", country: "États-Unis", category: .luxury, latitude: 34.0696, longitude: -118.4053),
+        Destination(flag: "🇺🇸", name: "Miami Beach", country: "États-Unis", category: .beach, latitude: 25.7907, longitude: -80.1300),
+        Destination(flag: "🇺🇸", name: "Las Vegas, le Strip", country: "États-Unis", category: .city, latitude: 36.1147, longitude: -115.1728),
+        Destination(flag: "🇬🇧", name: "Londres, Big Ben", country: "Royaume-Uni", category: .landmark, latitude: 51.5007, longitude: -0.1246),
+        Destination(flag: "🇪🇸", name: "Barcelone, Sagrada Família", country: "Espagne", category: .landmark, latitude: 41.4036, longitude: 2.1744),
+        Destination(flag: "🇪🇸", name: "Ibiza, Playa d'en Bossa", country: "Espagne", category: .beach, latitude: 38.8850, longitude: 1.4070),
+        Destination(flag: "🇪🇸", name: "Marbella, Puerto Banús", country: "Espagne", category: .luxury, latitude: 36.4870, longitude: -4.9520),
+        Destination(flag: "🇮🇹", name: "Rome, le Colisée", country: "Italie", category: .landmark, latitude: 41.8902, longitude: 12.4922),
+        Destination(flag: "🇮🇹", name: "Capri, Marina Grande", country: "Italie", category: .luxury, latitude: 40.5570, longitude: 14.2380),
+        Destination(flag: "🇬🇷", name: "Mykonos", country: "Grèce", category: .beach, latitude: 37.4467, longitude: 25.3289),
+        Destination(flag: "🇬🇷", name: "Santorin, Oia", country: "Grèce", category: .beach, latitude: 36.4618, longitude: 25.3753),
+        Destination(flag: "🇲🇦", name: "Marrakech, Jemaa el-Fna", country: "Maroc", category: .city, latitude: 31.6258, longitude: -7.9891),
+        Destination(flag: "🇹🇷", name: "Istanbul, Sainte-Sophie", country: "Turquie", category: .landmark, latitude: 41.0086, longitude: 28.9802),
+        Destination(flag: "🇯🇵", name: "Tokyo, Shibuya", country: "Japon", category: .city, latitude: 35.6595, longitude: 139.7005),
+        Destination(flag: "🇹🇭", name: "Phuket, Patong Beach", country: "Thaïlande", category: .beach, latitude: 7.8961, longitude: 98.2954),
+        Destination(flag: "🇮🇩", name: "Bali, Canggu", country: "Indonésie", category: .beach, latitude: -8.6478, longitude: 115.1385),
+        Destination(flag: "🇲🇻", name: "Maldives, Malé", country: "Maldives", category: .beach, latitude: 4.1755, longitude: 73.5093),
+        Destination(flag: "🇧🇷", name: "Rio, Copacabana", country: "Brésil", category: .beach, latitude: -22.9711, longitude: -43.1822),
+        Destination(flag: "🇦🇺", name: "Sydney, l'Opéra", country: "Australie", category: .landmark, latitude: -33.8568, longitude: 151.2153),
+    ]
+}
+
 struct BookmarksView: View {
     @Binding var bookmarks: [LocationBookmark]
     let onSelect: (LocationBookmark) -> Void
+    let onSelectDestination: (CLLocationCoordinate2D) -> Void
     let onDelete: (IndexSet) -> Void
+
+    @State private var tab = 0
+    @State private var category = Destination.Category.all
+    @State private var filter = ""
+
+    private var destinations: [Destination] {
+        let query = filter.trimmingCharacters(in: .whitespaces)
+        return Destination.all.filter { destination in
+            (category == .all || destination.category == category)
+                && (query.isEmpty
+                    || destination.name.localizedCaseInsensitiveContains(query)
+                    || destination.country.localizedCaseInsensitiveContains(query))
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            Group {
-                if bookmarks.isEmpty {
-                    ContentUnavailableView(
-                        "Aucun favori",
-                        systemImage: "bookmark.slash",
-                        description: Text("Touche la carte puis l'icône de favori pour enregistrer un lieu.")
-                    )
+            VStack(spacing: 0) {
+                Picker("Liste", selection: $tab) {
+                    Text("Destinations").tag(0)
+                    Text("Favoris").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                if tab == 0 {
+                    destinationList
                 } else {
-                    List {
-                        ForEach(bookmarks) { bookmark in
-                            Button {
-                                onSelect(bookmark)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(bookmark.name)
-                                        .foregroundStyle(.primary)
-                                    Text(String(format: "%.6f, %.6f", bookmark.latitude, bookmark.longitude))
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .onDelete(perform: onDelete)
-                    }
+                    bookmarkList
                 }
             }
-            .navigationTitle("Favoris")
+            .navigationTitle(tab == 0 ? "Destinations" : "Favoris")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if !bookmarks.isEmpty {
+                if tab == 1 && !bookmarks.isEmpty {
                     EditButton()
+                }
+            }
+        }
+    }
+
+    private var destinationList: some View {
+        List {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Destination.Category.allCases) { item in
+                            Button {
+                                category = item
+                            } label: {
+                                Text(item.rawValue)
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .foregroundStyle(category == item ? Color.black : Color.primary)
+                                    .background(
+                                        category == item ? Color.accentColor : Color.secondary.opacity(0.18),
+                                        in: Capsule()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowBackground(Color.clear)
+            }
+
+            Section {
+                ForEach(destinations) { destination in
+                    Button {
+                        onSelectDestination(destination.coordinate)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(destination.flag).font(.title2)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(destination.name).foregroundStyle(.primary)
+                                Text(destination.country).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                if destinations.isEmpty {
+                    Text("Aucune destination ne correspond.").foregroundStyle(.secondary)
+                }
+            }
+        }
+        .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .always), prompt: "Filtrer les destinations")
+    }
+
+    private var bookmarkList: some View {
+        Group {
+            if bookmarks.isEmpty {
+                ContentUnavailableView(
+                    "Aucun favori",
+                    systemImage: "bookmark.slash",
+                    description: Text("Touche la carte puis l'icône de favori pour enregistrer un lieu.")
+                )
+            } else {
+                List {
+                    ForEach(bookmarks) { bookmark in
+                        Button {
+                            onSelect(bookmark)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(bookmark.name)
+                                    .foregroundStyle(.primary)
+                                Text(String(format: "%.6f, %.6f", bookmark.latitude, bookmark.longitude))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .onDelete(perform: onDelete)
                 }
             }
         }

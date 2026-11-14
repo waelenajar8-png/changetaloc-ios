@@ -13,6 +13,8 @@ private enum SettingsLinks {
 }
 
 struct SettingsView: View {
+    @AppStorage("microMovements") private var microMovements = false
+    @AppStorage("autoReturnMinutes") private var autoReturnMinutes = 0
     @StateObject private var onDevicePairing = OnDevicePairingService.shared
     @AppStorage(UserDefaults.Keys.txmOverride) private var overrideTXMDetection = false
     @AppStorage(UserDefaults.Keys.confirmExternalJITRequests) private var confirmExternalJITRequests = true
@@ -121,6 +123,27 @@ struct SettingsView: View {
 
                 } header: {
                     Text("Rester actif en arrière-plan")
+                }
+
+                Section {
+                    Toggle(isOn: $microMovements) {
+                        Label("Micro-mouvements", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    Picker(selection: $autoReturnMinutes) {
+                        Text("Jamais").tag(0)
+                        Text("15 minutes").tag(15)
+                        Text("30 minutes").tag(30)
+                        Text("1 heure").tag(60)
+                        Text("2 heures").tag(120)
+                        Text("4 heures").tag(240)
+                        Text("8 heures").tag(480)
+                    } label: {
+                        Label("Retour automatique", systemImage: "timer")
+                    }
+                } header: {
+                    Text("Réalisme")
+                } footer: {
+                    Text("Micro-mouvements : ta position bouge de quelques mètres, comme un vrai téléphone. Retour automatique : ta vraie position revient seule après la durée choisie.")
                 }
 
                 Section("Dépannage") {
