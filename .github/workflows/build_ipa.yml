@@ -74,6 +74,21 @@ jobs:
           archive: false
           retention-days: 90
 
+      - name: Publish the app for the installer
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: cp StikDebug.ipa ChangeTaLoc.ipa
+
+      - name: Update the "app" release
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ChangeTaLoc
+          tag_name: app
+          target_commitish: ${{ github.sha }}
+          body: Dernière version de l'app, installée par l'assistant ChangeTaLoc.
+          files: ChangeTaLoc.ipa
+          fail_on_unmatched_files: true
+
       - name: Read version
         id: version
         if: startsWith(github.ref, 'refs/tags/')
