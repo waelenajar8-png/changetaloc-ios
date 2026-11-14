@@ -22,10 +22,13 @@ struct AccountGateView: View {
                 }
             case .signedOut:
                 LoginView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             case .blocked(let reason):
                 BlockedView(reason: reason)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             case .allowed:
                 MainTabView()
+                    .transition(.opacity)
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if account.status == "trialing", let left = account.trialSecondsLeft {
                             TrialBanner(secondsLeft: left)
@@ -33,6 +36,8 @@ struct AccountGateView: View {
                     }
             }
         }
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.35), value: account.state)
         .onAppear { account.start() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { account.refreshAccess() }

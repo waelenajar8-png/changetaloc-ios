@@ -784,6 +784,15 @@ final class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCo
     }
 }
 
+private struct PressableButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
 struct LocationSimulationView: View {
     @ObservedObject private var tunnel = TunnelManager.shared
     @State private var showConnectedStatus = true
@@ -979,8 +988,12 @@ struct LocationSimulationView: View {
                                 .tint(.blue)
                         }
                     } else if let coordinate {
-                        Marker("Pin", coordinate: coordinate)
-                            .tint(.red)
+                        Marker(
+                            hasActiveSimulation ? "Tu es ici" : "Lieu choisi",
+                            systemImage: hasActiveSimulation ? "location.fill" : "mappin",
+                            coordinate: coordinate
+                        )
+                        .tint(hasActiveSimulation ? Color.accentColor : .red)
                     }
                 }
                 .mapStyle(.standard(elevation: .realistic))
@@ -996,6 +1009,7 @@ struct LocationSimulationView: View {
                 .ignoresSafeArea()
                 .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
                     if let new {
+                        withAnimation(.easeInOut(duration: 0.9)) {
                         position = .region(
                             MKCoordinateRegion(
                                 center: new.coordinate,
@@ -1003,6 +1017,7 @@ struct LocationSimulationView: View {
                                 longitudinalMeters: 1000
                             )
                         )
+                        }
                     }
                 }
 
@@ -1021,13 +1036,31 @@ struct LocationSimulationView: View {
 
                     if hasRouteContext {
                         routeControls
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     } else {
                         pinControls
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .padding(.bottom, 24)
-                .padding(.horizontal, 16)
-                .padding(.horizontal, 16)
+                .padding(16)
+                .frame(maxWidth: 520)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.12))
+                )
+                .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+                .padding(.bottom, 16)
+                .padding(.horizontal, 14)
+                .animation(.spring(response: 0.42, dampingFraction: 0.82), value: hasRouteContext)
+                .animation(.spring(response: 0.42, dampingFraction: 0.82), value: coordinate.map(CoordinateSnapshot.init))
+                .animation(.spring(response: 0.42, dampingFraction: 0.82), value: hasActiveSimulation)
+                .animation(.spring(response: 0.42, dampingFraction: 0.82), value: travelModeRaw)
+                .sensoryFeedback(.success, trigger: hasActiveSimulation) { _, active in active }
+                .sensoryFeedback(.impact(weight: .light), trigger: hasActiveSimulation) { _, active in !active }
+                .sensoryFeedback(.selection, trigger: coordinate.map(CoordinateSnapshot.init))
+                .sensoryFeedback(.selection, trigger: travelModeRaw)
+                .sensoryFeedback(.error, trigger: showAlert) { _, shown in shown }
             }
         }
         .safeAreaInset(edge: .top) {
@@ -1346,33 +1379,94 @@ struct LocationSimulationView: View {
     @ViewBuilder
     private var pinControls: some View {
         if let coord = coordinate {
-            Text(String(format: "%.6f, %.6f", coord.latitude, coord.longitude))
-                .font(.footnote.monospaced())
-                .foregroundStyle(.secondary)
-
             HStack(spacing: 12) {
-                Button("Retour réel", action: clear)
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .disabled(!pairingExists || isBusy || !hasActiveSimulation)
-
-                Button("Y aller", action: simulate)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!pairingExists || isBusy || isLoadingRoute)
-
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(hasActiveSimulation ? Color.green : Color.secondary.opacity(0.5))
+                            .frame(width: 9, height: 9)
+                            .symbolEffect(.pulse, isActive: hasActiveSimulation)
+                        Text(hasActiveSimulation ? "Position changée" : "Lieu choisi")
+                            .font(.headline)
+                            .contentTransition(.opacity)
+                    }
+                    Text(String(format: "%.5f, %.5f", coord.latitude, coord.longitude))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                }
+                Spacer(minLength: 0)
                 Button {
                     showSaveBookmark = true
                 } label: {
                     Image(systemName: "bookmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 42, height: 42)
+                        .background(Color.primary.opacity(0.08), in: Circle())
                 }
-                .buttonStyle(.bordered)
-                .tint(.blue)
+                .buttonStyle(PressableButtonStyle())
+                .foregroundStyle(.primary)
                 .disabled(isRouteRunning)
+                .accessibilityLabel("Enregistrer ce lieu")
+            }
+
+            Button(action: simulate) {
+                HStack(spacing: 8) {
+                    if isBusy {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: "location.fill")
+                    }
+                    Text(hasActiveSimulation ? "Me déplacer ici" : "Changer ma position ici")
+                }
+                .font(.headline)
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(PressableButtonStyle())
+            .disabled(!pairingExists || isBusy || isLoadingRoute)
+            .opacity(!pairingExists ? 0.5 : 1)
+
+            if hasActiveSimulation {
+                Button(action: clear) {
+                    Label("Retour à ma vraie position", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .foregroundStyle(.red)
+                .disabled(!pairingExists || isBusy)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         } else {
-            Text("Cherche un lieu ou touche la carte")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 6) {
+                Image(systemName: "hand.tap.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.accentColor)
+                    .symbolEffect(.pulse)
+                Text("Choisis où tu veux être")
+                    .font(.headline)
+                Text("Touche la carte, cherche une adresse ou ouvre les destinations.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+
+            if hasActiveSimulation {
+                Button(action: clear) {
+                    Label("Retour à ma vraie position", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .foregroundStyle(.red)
+                .disabled(!pairingExists || isBusy)
+            }
         }
     }
 
@@ -1393,13 +1487,36 @@ struct LocationSimulationView: View {
 
             routeAttributionLink
 
-            Picker("Mode de déplacement", selection: $travelModeRaw) {
-                ForEach(TravelMode.allCases) { mode in
-                    Label(mode.title, systemImage: mode.systemImage).tag(mode.rawValue)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(TravelMode.allCases) { mode in
+                        let selected = mode.rawValue == travelModeRaw
+                        Button {
+                            travelModeRaw = mode.rawValue
+                        } label: {
+                            VStack(spacing: 4) {
+                                Image(systemName: mode.systemImage)
+                                    .font(.body.weight(.semibold))
+                                    .frame(height: 20)
+                                Text(mode.title)
+                                    .font(.caption2.weight(.semibold))
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(selected ? Color.black : Color.primary)
+                            .frame(minWidth: 68, minHeight: 54)
+                            .padding(.horizontal, 4)
+                            .background(
+                                selected ? Color.accentColor : Color.primary.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            )
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .accessibilityLabel(mode.title)
+                    }
                 }
             }
-            .pickerStyle(.menu)
             .disabled(isBusy || isRouteRunning)
+            .opacity(isRouteRunning ? 0.55 : 1)
             .onChange(of: travelModeRaw) { _, _ in
                 refreshRoute()
             }
@@ -1418,26 +1535,53 @@ struct LocationSimulationView: View {
                 }
             }
 
-            HStack(spacing: 12) {
-                Button("Retour réel", action: clear)
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .disabled(!pairingExists || isBusy || !hasActiveSimulation)
+            Button(action: simulateRoute) {
+                HStack(spacing: 8) {
+                    if isBusy || isLoadingRoute || isPrefetchingRouteSpeeds {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: isRouteRunning ? "location.north.line.fill" : "play.fill")
+                    }
+                    Text(isRouteRunning ? "Trajet en cours" : "Lancer le trajet")
+                }
+                .font(.headline)
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(PressableButtonStyle())
+            .disabled(
+                !pairingExists ||
+                isBusy ||
+                isRouteRunning ||
+                isLoadingRoute ||
+                isPrefetchingRouteSpeeds ||
+                routePlan == nil ||
+                routePlaybackSamples.isEmpty
+            )
 
-                Button("Lancer le trajet", action: simulateRoute)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(
-                        !pairingExists ||
-                        isBusy ||
-                        isLoadingRoute ||
-                        isPrefetchingRouteSpeeds ||
-                        routePlan == nil ||
-                        routePlaybackSamples.isEmpty
-                    )
+            HStack(spacing: 10) {
+                Button(action: clear) {
+                    Label("Retour réel", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .foregroundStyle(.red)
+                .disabled(!pairingExists || isBusy || !hasActiveSimulation)
+                .opacity(hasActiveSimulation ? 1 : 0.45)
 
-                Button("Effacer", action: resetRouteSelection)
-                    .buttonStyle(.bordered)
-                    .disabled(isBusy || isRouteRunning)
+                Button(action: resetRouteSelection) {
+                    Label("Effacer", systemImage: "xmark")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .foregroundStyle(.primary)
+                .disabled(isBusy || isRouteRunning)
+                .opacity(isRouteRunning ? 0.45 : 1)
             }
         }
     }
