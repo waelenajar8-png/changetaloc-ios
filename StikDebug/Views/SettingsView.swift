@@ -137,6 +137,18 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Mon compte") {
+                    if let email = AccountStore.shared.email {
+                        LabeledContent("Connecté", value: email)
+                    }
+                    Link(destination: URL(string: "https://changetaloc.com/compte")!) {
+                        Label("Gérer mon abonnement", systemImage: "creditcard")
+                    }
+                    Button(role: .destructive, action: AccountStore.shared.signOut) {
+                        Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+
                 Section("Aide") {
                     Button(action: connectLocalDevVPN) {
                         Label("Ouvrir LocalDevVPN", systemImage: "network")
