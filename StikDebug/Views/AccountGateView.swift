@@ -146,6 +146,7 @@ private struct LoginView: View {
                     VStack(spacing: 14) {
                         Link("Pas encore de compte ? Créer un compte", destination: AccountStore.signUpURL)
                         Link("Mot de passe oublié", destination: AccountStore.signUpURL)
+                        Button("Continuer en invité (test)", action: account.enterGuestMode)
                     }
                     .font(.footnote)
                     .tint(brandYellow)
