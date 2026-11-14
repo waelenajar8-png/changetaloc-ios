@@ -13,18 +13,18 @@ struct ConnectionDiagnosis: Equatable {
 
     var title: String {
         switch problem {
-        case .pairingFile: return String(localized: "Pairing file unavailable")
-        case .invalidAddress: return String(localized: "Invalid target address")
-        case .pairingRejected: return String(localized: "Pairing file rejected")
-        case .deviceLocked: return String(localized: "Device is locked")
-        case .developerMode: return String(localized: "Developer Mode is off")
-        case .developerService: return String(localized: "Developer service unavailable")
-        case .cellular: return String(localized: "Enable Airplane Mode")
-        case .networkUnavailable: return String(localized: "Disable Airplane Mode")
-        case .noVPN: return String(localized: "Connect LocalDevVPN")
-        case .vpnUnresponsive: return String(localized: "LocalDevVPN is unavailable")
-        case .serviceUnreachable: return String(localized: "Device isn’t reachable")
-        case .unknown: return String(localized: "Couldn’t connect to the device")
+        case .pairingFile: return String(localized: "Liaison avec l'iPhone manquante")
+        case .invalidAddress: return String(localized: "Adresse invalide")
+        case .pairingRejected: return String(localized: "Liaison avec l'iPhone refusée")
+        case .deviceLocked: return String(localized: "iPhone verrouillé")
+        case .developerMode: return String(localized: "Mode développeur désactivé")
+        case .developerService: return String(localized: "Service développeur indisponible")
+        case .cellular: return String(localized: "Active le mode avion")
+        case .networkUnavailable: return String(localized: "Désactive le mode avion")
+        case .noVPN: return String(localized: "Active LocalDevVPN")
+        case .vpnUnresponsive: return String(localized: "LocalDevVPN ne répond pas")
+        case .serviceUnreachable: return String(localized: "iPhone injoignable")
+        case .unknown: return String(localized: "Connexion impossible")
         }
     }
 
@@ -48,9 +48,9 @@ struct ConnectionDiagnosis: Equatable {
 
     var detectedSummary: String? {
         switch problem {
-        case .cellular: return "Cellular"
-        case .networkUnavailable: return "No Wi-Fi or cellular connection"
-        case .noVPN: return "LocalDevVPN disconnected"
+        case .cellular: return "Réseau mobile (4G/5G)"
+        case .networkUnavailable: return "Ni Wi-Fi ni réseau mobile"
+        case .noVPN: return "LocalDevVPN désactivé"
         case .unknown: return nil
         default: return title
         }
@@ -60,31 +60,31 @@ struct ConnectionDiagnosis: Equatable {
         switch problem {
         case .pairingFile, .pairingRejected:
             if #available(iOS 27.0, *) {
-                return String(localized: "Generate and place a new pairing file using Settings → Pair a Device, or iloader.")
+                return String(localized: "Rebranche ton iPhone à l'ordinateur et relance l'assistant ChangeTaLoc pour refaire la liaison.")
             }
-            return String(localized: "Generate and place a new pairing file using iloader.")
+            return String(localized: "Rebranche ton iPhone à l'ordinateur et relance l'assistant ChangeTaLoc pour refaire la liaison.")
         case .invalidAddress:
-            return String(localized: "Check Target Device IP in Settings. Enter an IPv4 address such as 10.7.0.1.")
+            return String(localized: "Utilise « Réparer la connexion » dans Réglages.")
         case .deviceLocked:
-            return String(localized: "Unlock the target device and try again.")
+            return String(localized: "Déverrouille l'iPhone et réessaie.")
         case .developerMode:
-            return String(localized: "Enable Developer Mode in the target device’s Settings → Privacy & Security, then follow its restart instructions.")
+            return String(localized: "Active le mode développeur dans Réglages > Confidentialité et sécurité, puis redémarre l'iPhone comme demandé.")
         case .developerService:
-            return String(localized: "Check that Developer Mode is enabled. Try reconnecting; if the service is still unavailable, redownload the developer disk image in Settings.")
+            return String(localized: "Vérifie que le mode développeur est activé, puis réessaie. Si ça continue, utilise « Réparer la connexion » dans Réglages.")
         case .cellular:
-            return String(localized: "Keep LocalDevVPN connected. Enable Airplane Mode by swiping down from the top-right corner of your screen and tapping the airplane icon, then return here.")
+            return String(localized: "En 4G/5G : laisse LocalDevVPN activé, active le mode avion (glisse depuis le coin en haut à droite), reviens ici et touche Réessayer. Une fois connecté, tu peux désactiver le mode avion.")
         case .networkUnavailable:
-            return String(localized: "Disable Airplane Mode by swiping down from the top-right corner of your screen and tapping the airplane icon, then return here.")
+            return String(localized: "Désactive le mode avion (glisse depuis le coin en haut à droite), puis reviens ici.")
         case .noVPN:
-            return String(localized: "Connect LocalDevVPN, then return to StikDebug and try again.")
+            return String(localized: "Ouvre LocalDevVPN, touche Connecter, puis reviens dans ChangeTaLoc et réessaie.")
         case .vpnUnresponsive:
-            return String(localized: "Connect the VPN, then return here.")
+            return String(localized: "Active LocalDevVPN, puis reviens ici.")
         case .serviceUnreachable:
             return isLocal
-                ? String(localized: "The device’s pairing service isn’t reachable. Check Remote Pairing Port in Settings. If it still fails, restart the device and reconnect LocalDevVPN.")
-                : String(localized: "Check Target Device IP and Remote Pairing Port in Settings, and make sure the target device is reachable on your network.")
+                ? String(localized: "L'iPhone ne répond pas. Redémarre-le, réactive LocalDevVPN et réessaie.")
+                : String(localized: "L'iPhone ne répond pas. Redémarre-le, réactive LocalDevVPN et réessaie.")
         case .unknown:
-            return String(localized: "Unlock the target device and try again. If the error continues, restart the target device.")
+            return String(localized: "Déverrouille l'iPhone et réessaie. Si l'erreur continue, redémarre l'iPhone.")
         }
     }
 }

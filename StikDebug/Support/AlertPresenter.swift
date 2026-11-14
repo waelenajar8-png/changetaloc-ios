@@ -22,10 +22,10 @@ enum AlertPresenter {
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
 
             if showTryAgain {
-                alert.addAction(UIAlertAction(title: primaryButtonText ?? String(localized: "Try Again"), style: .default) { _ in
+                alert.addAction(UIAlertAction(title: primaryButtonText ?? "Réessayer", style: .default) { _ in
                     completion?(true)
                 })
-                alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel) { _ in
+                alert.addAction(UIAlertAction(title: "Annuler", style: .cancel) { _ in
                     completion?(false)
                 })
             } else if showOk {

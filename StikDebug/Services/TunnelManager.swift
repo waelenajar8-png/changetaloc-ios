@@ -156,7 +156,7 @@ final class TunnelManager: ObservableObject {
         }
 
         showAlert(
-            title: "Connection Error".localized,
+            title: "Connexion impossible",
             message: tunnelConnectionAlertMessage(for: error, diagnosis: lastDiagnosis),
             showOk: false,
             showTryAgain: true
@@ -171,11 +171,11 @@ final class TunnelManager: ObservableObject {
         LogManager.shared.addInfoLog("Pairing file reported invalid; keeping existing file")
 
         showAlert(
-            title: "Invalid Pairing File".localized,
+            title: "Liaison avec l'iPhone à refaire",
             message: tunnelConnectionAlertMessage(for: error, diagnosis: lastDiagnosis),
             showOk: true,
             showTryAgain: false,
-            primaryButtonText: String(localized: "Select New File")
+            primaryButtonText: "Choisir un fichier"
         ) { _ in
             NotificationCenter.default.post(name: NSNotification.Name("ShowPairingFilePicker"), object: nil)
         }
@@ -204,7 +204,7 @@ private func tunnelConnectionLogMessage(for error: NSError) -> String {
 }
 
 private func tunnelConnectionAlertMessage(for error: NSError, diagnosis: ConnectionDiagnosis?) -> String {
-    let summary = diagnosis.map { "\($0.title)\n\($0.message)" } ?? "Unlock the target device and try again."
+    let summary = diagnosis.map { "\($0.title)\n\($0.message)" } ?? "Déverrouille l'iPhone et réessaie."
     let detail = diagnosis?.hasSimpleError == true ? "" : "\n\nCode \(error.code): \(error.localizedDescription)"
     return """
     \(summary)\(detail)

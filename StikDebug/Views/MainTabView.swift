@@ -25,27 +25,27 @@ private enum ExternalLocationAction: Identifiable {
     var title: String {
         switch self {
         case .simulate:
-            return "Simulate Location?"
+            return "Changer la position ?"
         case .clear:
-            return "Clear Location?"
+            return "Revenir à la vraie position ?"
         }
     }
 
     var message: String {
         switch self {
         case .simulate(_, let latitude, let longitude):
-            return String(format: "An external link wants to set the simulated location to %.6f, %.6f.", latitude, longitude)
+            return String(format: "Un lien veut placer ta position sur %.6f, %.6f.", latitude, longitude)
         case .clear:
-            return "An external link wants to clear the simulated location."
+            return "Un lien veut te ramener à ta vraie position."
         }
     }
 
     var confirmationTitle: String {
         switch self {
         case .simulate:
-            return "Set Location"
+            return "Changer la position"
         case .clear:
-            return "Clear Location"
+            return "Retour réel"
         }
     }
 }
@@ -94,7 +94,7 @@ struct MainTabView: View {
                     performLocationAction(action)
                     pendingLocationAction = nil
                 }
-                Button("Cancel", role: .cancel) {
+                Button("Annuler", role: .cancel) {
                     pendingLocationAction = nil
                 }
             } message: { action in
@@ -105,7 +105,7 @@ struct MainTabView: View {
                     feature.destination
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Close") {
+                                Button("Fermer") {
                                     detachedFeature = nil
                                 }
                             }
@@ -157,7 +157,7 @@ struct MainTabView: View {
     private func confirmSimulatedLocation(from url: URL) {
         guard let coordinate = coordinate(from: url) else {
             showAlert(
-                title: "Invalid Location URL".localized,
+                title: "Lien invalide",
                 message: "Use stikdebug://simulate-location?lat=37.3349&lon=-122.0090",
                 showOk: true
             )
@@ -166,8 +166,8 @@ struct MainTabView: View {
 
         guard coordinateIsValid(latitude: coordinate.latitude, longitude: coordinate.longitude) else {
             showAlert(
-                title: "Invalid Coordinates".localized,
-                message: "Latitude must be between -90 and 90. Longitude must be between -180 and 180.",
+                title: "Coordonnées invalides",
+                message: "La latitude va de -90 à 90 et la longitude de -180 à 180.",
                 showOk: true
             )
             return
@@ -188,7 +188,7 @@ struct MainTabView: View {
     private func simulateLocation(from url: URL) {
         guard let coordinate = coordinate(from: url) else {
             showAlert(
-                title: "Invalid Location URL".localized,
+                title: "Lien invalide",
                 message: "Use stikdebug://simulate-location?lat=37.3349&lon=-122.0090",
                 showOk: true
             )
@@ -197,8 +197,8 @@ struct MainTabView: View {
 
         guard coordinateIsValid(latitude: coordinate.latitude, longitude: coordinate.longitude) else {
             showAlert(
-                title: "Invalid Coordinates".localized,
-                message: "Latitude must be between -90 and 90. Longitude must be between -180 and 180.",
+                title: "Coordonnées invalides",
+                message: "La latitude va de -90 à 90 et la longitude de -180 à 180.",
                 showOk: true
             )
             return
@@ -207,8 +207,8 @@ struct MainTabView: View {
         let pairingFile = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingFile.path) else {
             showAlert(
-                title: "Pairing File Required".localized,
-                message: "Import a pairing file before simulating location from a URL.",
+                title: "Liaison avec l'iPhone manquante",
+                message: "Relance l'assistant ChangeTaLoc sur ton ordinateur avant d'utiliser ce lien.",
                 showOk: true
             )
             return
@@ -245,8 +245,8 @@ struct MainTabView: View {
                     )
                 } else {
                     showAlert(
-                        title: "Location Simulation Failed".localized,
-                        message: "Could not simulate location from URL (error \(code)). Make sure the device is connected and the DDI is mounted.",
+                        title: "Changement impossible",
+                        message: "Impossible de changer la position (erreur \(code)). Vérifie que LocalDevVPN est activé.",
                         showOk: true
                     )
                 }
@@ -263,8 +263,8 @@ struct MainTabView: View {
                     LogManager.shared.addInfoLog("Cleared simulated location from URL")
                 } else {
                     showAlert(
-                        title: "Clear Location Failed".localized,
-                        message: "Could not clear simulated location from URL (error \(code)).",
+                        title: "Retour impossible",
+                        message: "Impossible de revenir à la vraie position (erreur \(code)).",
                         showOk: true
                     )
                 }

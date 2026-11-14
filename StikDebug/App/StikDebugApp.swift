@@ -49,8 +49,8 @@ struct StikDebugApp: App {
         } catch {
             await MainActor.run {
                 showAlert(
-                    title: "An Error has Occurred".localized,
-                    message: "[Download DDI Error]: \(error.localizedDescription)",
+                    title: "Téléchargement impossible",
+                    message: "Les fichiers nécessaires n'ont pas pu être téléchargés. Connecte-toi à Internet puis rouvre l'app. (\(error.localizedDescription))",
                     showOk: true
                 )
             }
