@@ -50,8 +50,88 @@ private enum ExternalLocationAction: Identifiable {
     }
 }
 
+// MARK: - Annonce de mise à jour
+
+enum AppRelease {
+    /// Numéro de cette version de l'app. Pour annoncer une mise à jour aux clients :
+    /// augmenter ce numéro de 1, publier l'app, puis mettre le même numéro dans
+    /// LATEST_RELEASE sur le site (app/api/app/version). Les anciennes versions affichent alors le bandeau.
+    static let current = 1
+}
+
+/// Demande au site s'il existe une version plus récente de l'app.
+/// L'app ne peut pas se mettre à jour seule : on invite le client à rebrancher son iPhone.
+@MainActor
+final class UpdateNotice: ObservableObject {
+    static let shared = UpdateNotice()
+
+    @Published private(set) var latest = 0
+    private var lastCheck: Date?
+
+    func refresh() {
+        // Une vérification par heure suffit.
+        if let lastCheck, Date().timeIntervalSince(lastCheck) < 3600 { return }
+        lastCheck = Date()
+        Task {
+            var request = URLRequest(url: URL(string: "https://changetaloc.com/api/app/version")!)
+            request.timeoutInterval = 10
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let value = object["latest"] as? Int else {
+                // Pas de réseau ou site injoignable : on réessaiera à la prochaine ouverture.
+                lastCheck = nil
+                return
+            }
+            latest = value
+        }
+    }
+}
+
 struct MainTabView: View {
     @AppStorage("primaryTabSelection") private var selection: String = AppFeature.location.id
+    @AppStorage("dismissedRelease") private var dismissedRelease = 0
+    @ObservedObject private var updateNotice = UpdateNotice.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var showsUpdateBanner: Bool {
+        updateNotice.latest > AppRelease.current && dismissedRelease < updateNotice.latest
+    }
+
+    private var updateBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Nouvelle version disponible")
+                    .font(.subheadline.weight(.semibold))
+                Text("Rebranche ton iPhone à l'ordinateur et clique sur « Mettre à jour » dans l'assistant ChangeTaLoc.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    dismissedRelease = updateNotice.latest
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .background(Color.primary.opacity(0.08), in: Circle())
+            }
+            .accessibilityLabel("Masquer")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
     @State private var detachedFeature: AppFeature?
     @State private var didSetInitialHome = false
     @State private var pendingLocationAction: ExternalLocationAction?
@@ -77,8 +157,22 @@ struct MainTabView: View {
             .onOpenURL { url in
                 handleURL(url)
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showsUpdateBanner {
+                    updateBanner
+                }
+            }
+            .animation(.easeOut(duration: 0.25), value: showsUpdateBanner)
+            .task {
+                updateNotice.refresh()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    updateNotice.refresh()
+                }
+            }
             .confirmationDialog(
-                pendingLocationAction?.title ?? "External Location Request",
+                pendingLocationAction?.title ?? "Demande de position",
                 isPresented: Binding(
                     get: { pendingLocationAction != nil },
                     set: { isPresented in
