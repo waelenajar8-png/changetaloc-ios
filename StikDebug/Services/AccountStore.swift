@@ -67,22 +67,17 @@ final class AccountStore: ObservableObject {
     // Un abonné reste débloqué deux jours sans réseau ; l'essai, lui, se décompte sur l'iPhone en attendant.
     private let offlineGrace: TimeInterval = 48 * 3600
 
-    private var guestMode = UserDefaults.standard.bool(forKey: "com.changetaloc.guest") {
-        didSet { UserDefaults.standard.set(guestMode, forKey: "com.changetaloc.guest") }
-    }
     private var session: Session?
     private var pendingSeconds = 0
     private var timer: Timer?
     private var checkInFlight = false
 
     private init() {
+        // L'ancien mode invité des tests internes n'existe plus : on efface sa trace.
+        UserDefaults.standard.removeObject(forKey: "com.changetaloc.guest")
         session = loadSession()
         email = session?.email
-        if guestMode {
-            email = "Mode invité"
-            status = "active"
-            state = .allowed
-        } else if session == nil {
+        if session == nil {
             state = .signedOut
         } else if let decision = loadDecision(), decision.access, Date().timeIntervalSince(decision.date) < offlineGrace {
             // On rouvre l'app sans attendre le réseau ; la vérification suit juste après.
@@ -153,17 +148,7 @@ final class AccountStore: ObservableObject {
         }
     }
 
-    // Provisoire : accès complet sans compte pour les tests internes. À retirer avant le lancement.
-    func enterGuestMode() {
-        guestMode = true
-        email = "Mode invité"
-        status = "active"
-        trialSecondsLeft = nil
-        state = .allowed
-    }
-
     func signOut() {
-        guestMode = false
         stopSimulation()
         session = nil
         deleteSession()
