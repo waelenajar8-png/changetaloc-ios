@@ -45,11 +45,18 @@ private enum RouteSimulationDefaults {
     static let playbackTickInterval: TimeInterval = 0.5
     static let minimumSpeedMetersPerSecond: CLLocationSpeed = 1.0
     static let importedRouteFallbackSpeedMetersPerSecond: CLLocationSpeed = 13.4
+    /// Au-delà, on ne charge plus les limitations rue par rue : la zone à couvrir serait trop grande
+    /// et le trajet resterait bloqué sur « Chargement des vitesses ».
+    static let speedLimitLookupMaxDistance: CLLocationDistance = 20_000
+    /// Nombre de points visé pour dessiner un long trajet sans alourdir la carte.
+    static let maximumDisplayPointCount: Double = 4_000
+    static let customSpeedRangeKmh: ClosedRange<Double> = 1...2_000
+    static let customSpeedSliderMaxKmh: Double = 300
 }
 
 /// Façon de se déplacer le long d'un trajet. Fixe la vitesse et le type d'itinéraire.
 private enum TravelMode: String, CaseIterable, Identifiable {
-    case walk, bike, car, custom, boat, plane
+    case walk, bike, moto, car, custom, boat, plane
 
     var id: String { rawValue }
 
@@ -57,6 +64,7 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         switch self {
         case .walk: return "À pied"
         case .bike: return "Vélo"
+        case .moto: return "Moto"
         case .car: return "Voiture"
         case .custom: return "Vitesse libre"
         case .boat: return "Bateau"
@@ -68,6 +76,7 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         switch self {
         case .walk: return "figure.walk"
         case .bike: return "bicycle"
+        case .moto: return "scooter"
         case .car: return "car.fill"
         case .custom: return "speedometer"
         case .boat: return "ferry.fill"
@@ -84,13 +93,26 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         (self == .walk || self == .bike) ? .walking : .automobile
     }
 
+    /// Vitesse moyenne affichée sous les modes, pour que le client sache à quoi s'attendre.
+    func speedHint(customKmh: Double) -> String {
+        switch self {
+        case .walk: return "5 km/h"
+        case .bike: return "18 km/h"
+        case .moto, .car: return "Vitesse des routes"
+        case .custom: return "\(Int(customKmh)) km/h"
+        case .boat: return "40 km/h"
+        case .plane: return "850 km/h"
+        }
+    }
+
     /// Vitesse imposée en mètres par seconde. `nil` : on suit la limitation de chaque route.
     func fixedSpeed(customKmh: Double) -> CLLocationSpeed? {
         switch self {
         case .walk: return 5.0 / 3.6
         case .bike: return 18.0 / 3.6
+        case .moto: return nil
         case .car: return nil
-        case .custom: return max(customKmh, 1.0) / 3.6
+        case .custom: return min(max(customKmh, 1.0), RouteSimulationDefaults.customSpeedRangeKmh.upperBound) / 3.6
         case .boat: return 40.0 / 3.6
         case .plane: return 850.0 / 3.6
         }
@@ -174,6 +196,43 @@ private func sampledRouteCoordinates(
     }
 
     return sampled
+}
+
+/// Trajet d'avion : suit l'arc de grand cercle, comme une vraie route aérienne,
+/// au lieu d'une ligne droite sur la carte.
+private func greatCircleCoordinates(
+    from start: CLLocationCoordinate2D,
+    to end: CLLocationCoordinate2D,
+    pointCount: Int
+) -> [CLLocationCoordinate2D] {
+    let lat1 = start.latitude * .pi / 180
+    let lon1 = start.longitude * .pi / 180
+    let lat2 = end.latitude * .pi / 180
+    let lon2 = end.longitude * .pi / 180
+
+    let haversine = pow(sin((lat2 - lat1) / 2), 2) + cos(lat1) * cos(lat2) * pow(sin((lon2 - lon1) / 2), 2)
+    let angle = 2 * asin(min(1, sqrt(haversine)))
+    let steps = max(1, pointCount)
+    // Points confondus ou diamétralement opposés : l'arc n'est pas défini, on garde la ligne droite.
+    guard angle > 1e-9, sin(angle) > 1e-9 else { return [start, end] }
+
+    var coordinates: [CLLocationCoordinate2D] = []
+    coordinates.reserveCapacity(steps + 1)
+    for index in 0...steps {
+        let fraction = Double(index) / Double(steps)
+        let a = sin((1 - fraction) * angle) / sin(angle)
+        let b = sin(fraction * angle) / sin(angle)
+        let x = a * cos(lat1) * cos(lon1) + b * cos(lat2) * cos(lon2)
+        let y = a * cos(lat1) * sin(lon1) + b * cos(lat2) * sin(lon2)
+        let z = a * sin(lat1) + b * sin(lat2)
+        coordinates.append(
+            CLLocationCoordinate2D(
+                latitude: atan2(z, sqrt(x * x + y * y)) * 180 / .pi,
+                longitude: atan2(y, x) * 180 / .pi
+            )
+        )
+    }
+    return coordinates
 }
 
 private func midpointCoordinate(
@@ -296,7 +355,9 @@ private func fetchOpenStreetMapWays(for coordinates: [CLLocationCoordinate2D]) a
     components?.queryItems = [URLQueryItem(name: "data", value: query)]
     guard let url = components?.url else { return [] }
 
-    let (data, response) = try await URLSession.shared.data(from: url)
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 12
+    let (data, response) = try await URLSession.shared.data(for: request)
 
     if let httpResponse = response as? HTTPURLResponse,
        !(200...299).contains(httpResponse.statusCode) {
@@ -403,7 +464,9 @@ private func prefetchRoutePlaybackSamples(
     displayCoordinates: [CLLocationCoordinate2D],
     fallbackSpeedMetersPerSecond: CLLocationSpeed
 ) async -> [RoutePlaybackSample] {
-    let speedWays = (try? await fetchOpenStreetMapWays(for: displayCoordinates)) ?? []
+    // Sur un long trajet, la vitesse moyenne de l'itinéraire suffit et évite une attente interminable.
+    let isShortRoute = distanceAlong(displayCoordinates) <= RouteSimulationDefaults.speedLimitLookupMaxDistance
+    let speedWays = isShortRoute ? ((try? await fetchOpenStreetMapWays(for: displayCoordinates)) ?? []) : []
     return buildPlaybackSamples(
         from: displayCoordinates,
         speedWays: speedWays,
@@ -825,6 +888,15 @@ struct LocationSimulationView: View {
     private var travelMode: TravelMode {
         TravelMode(rawValue: travelModeRaw) ?? .car
     }
+    @State private var showCustomSpeedPrompt = false
+    @State private var customSpeedInput = ""
+    /// Le curseur couvre les vitesses courantes ; une vitesse plus haute se tape à la main.
+    private var customSpeedSliderBinding: Binding<Double> {
+        Binding(
+            get: { min(max(customSpeedKmh, 1), RouteSimulationDefaults.customSpeedSliderMaxKmh) },
+            set: { customSpeedKmh = $0 }
+        )
+    }
     @State private var showCoordinateImporter = false
     @State private var showRouteSearch = false
     @State private var routeStartSelection: RouteSearchSelection?
@@ -899,10 +971,11 @@ struct LocationSimulationView: View {
             unit: UnitLength.kilometers
         ).formatted(.measurement(width: .abbreviated, usage: .road))
         let durationText = Self.routeDurationFormatter.string(from: routePlan.expectedTravelTime)
+        let speedText = travelMode.speedHint(customKmh: customSpeedKmh)
         if let durationText, !durationText.isEmpty {
-            return "\(distanceText) • ETA \(durationText)"
+            return "\(distanceText) • \(durationText) • \(speedText)"
         }
-        return distanceText
+        return "\(distanceText) • \(speedText)"
     }
 
     private var routeStatusText: String {
@@ -913,7 +986,7 @@ struct LocationSimulationView: View {
             return "Calcul du trajet…"
         }
         if isPrefetchingRouteSpeeds {
-            return "Chargement des vitesses de route…"
+            return "Préparation du trajet…"
         }
         if routePlan != nil {
             return "Trajet prêt."
@@ -1139,6 +1212,14 @@ struct LocationSimulationView: View {
         } message: {
             Text(alertMessage)
         }
+        .alert("Vitesse du trajet", isPresented: $showCustomSpeedPrompt) {
+            TextField("km/h", text: $customSpeedInput)
+                .keyboardType(.numberPad)
+            Button("Valider") { applyCustomSpeedInput() }
+            Button("Annuler", role: .cancel) { }
+        } message: {
+            Text("Entre la vitesse en km/h, de 1 à 2 000.")
+        }
         .alert("Enregistrer ce lieu", isPresented: $showSaveBookmark) {
             TextField("Nom", text: $newBookmarkName)
             Button("Enregistrer") { addBookmark() }
@@ -1231,6 +1312,14 @@ struct LocationSimulationView: View {
         newBookmarkName = ""
     }
 
+    private func applyCustomSpeedInput() {
+        let digits = customSpeedInput.filter(\.isNumber)
+        guard let value = Double(digits) else { return }
+        let range = RouteSimulationDefaults.customSpeedRangeKmh
+        customSpeedKmh = min(max(value, range.lowerBound), range.upperBound)
+        refreshRoute()
+    }
+
     private func setRoutePlan(_ plan: RouteSimulationPlan?) {
         routePlan = plan
         routePolyline = plan.flatMap { makeRoutePolyline(for: $0.displayCoordinates) }
@@ -1252,19 +1341,45 @@ struct LocationSimulationView: View {
 
         let request = MKLocalSearch.Request(completion: result)
         MKLocalSearch(request: request).start { response, _ in
-            if let item = response?.mapItems.first {
-                applySelection(item.placemark.coordinate)
+            DispatchQueue.main.async {
+                if let item = response?.mapItems.first {
+                    applySelection(item.placemark.coordinate)
+                }
             }
         }
     }
 
     private func applyCoordinatesFromSearchText() {
         let importedCoordinates = CoordinateImportParser.parseInline(searchText)
-        guard !importedCoordinates.isEmpty else { return }
+        guard importedCoordinates.isEmpty else {
+            searchText = ""
+            searchCompleter.results = []
+            applyImportedCoordinates(importedCoordinates, sourceName: "Import")
+            return
+        }
 
-        searchText = ""
-        searchCompleter.results = []
-        applyImportedCoordinates(importedCoordinates, sourceName: "Imported")
+        // Du texte et non des coordonnées : on prend la première suggestion, sinon on cherche le lieu tapé.
+        if let firstResult = searchCompleter.results.first {
+            selectSearchResult(firstResult)
+            return
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        MKLocalSearch(request: request).start { response, _ in
+            DispatchQueue.main.async {
+                guard let item = response?.mapItems.first else {
+                    alertTitle = "Lieu introuvable"
+                    alertMessage = "Aucun lieu trouvé pour « \(query) ». Vérifie l'orthographe ou ajoute la ville."
+                    showAlert = true
+                    return
+                }
+                searchText = ""
+                searchCompleter.results = []
+                applySelection(item.placemark.coordinate)
+            }
+        }
     }
 
     private func importCoordinates(_ result: Result<[URL], Error>) {
@@ -1284,7 +1399,7 @@ struct LocationSimulationView: View {
                         isImportingCoordinates = false
                         applyImportedCoordinates(
                             coordinates,
-                            sourceName: sourceName.isEmpty ? "Imported" : sourceName
+                            sourceName: sourceName.isEmpty ? "Import" : sourceName
                         )
                     }
                 } catch {
@@ -1523,16 +1638,33 @@ struct LocationSimulationView: View {
 
             if travelMode == .custom {
                 HStack(spacing: 10) {
-                    Slider(value: $customSpeedKmh, in: 1...300, step: 1) { editing in
+                    Slider(value: customSpeedSliderBinding, in: 1...RouteSimulationDefaults.customSpeedSliderMaxKmh, step: 1) { editing in
                         if !editing {
                             refreshRoute()
                         }
                     }
-                    .disabled(isBusy || isRouteRunning)
-                    Text("\(Int(customSpeedKmh)) km/h")
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.secondary)
+                    // Touche la vitesse pour taper la valeur exacte (jusqu'à 2 000 km/h).
+                    Button {
+                        customSpeedInput = String(Int(customSpeedKmh))
+                        showCustomSpeedPrompt = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("\(Int(customSpeedKmh)) km/h")
+                                .font(.footnote.monospaced().weight(.semibold))
+                                .contentTransition(.numericText())
+                            Image(systemName: "pencil")
+                                .font(.caption2)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 34)
+                        .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .foregroundStyle(.primary)
+                    .accessibilityLabel("Saisir la vitesse")
                 }
+                .disabled(isBusy || isRouteRunning)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             Button(action: simulateRoute) {
@@ -1786,7 +1918,16 @@ struct LocationSimulationView: View {
             let distance = CLLocation(latitude: routeStart.latitude, longitude: routeStart.longitude)
                 .distance(from: CLLocation(latitude: routeEnd.latitude, longitude: routeEnd.longitude))
             let spacing = max(RouteSimulationDefaults.pathSamplingDistance, distance / 2000)
-            let displayCoordinates = sampledRouteCoordinates(from: [routeStart, routeEnd], targetDistance: spacing)
+            let displayCoordinates: [CLLocationCoordinate2D]
+            if mode == .plane {
+                displayCoordinates = greatCircleCoordinates(
+                    from: routeStart,
+                    to: routeEnd,
+                    pointCount: Int(ceil(distance / spacing))
+                )
+            } else {
+                displayCoordinates = sampledRouteCoordinates(from: [routeStart, routeEnd], targetDistance: spacing)
+            }
             setRoutePlan(
                 RouteSimulationPlan(
                     displayCoordinates: displayCoordinates,
@@ -1810,15 +1951,26 @@ struct LocationSimulationView: View {
         isLoadingRoute = true
         isPrefetchingRouteSpeeds = false
 
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: routeStart))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: routeEnd))
-        request.requestsAlternateRoutes = false
-        request.transportType = mode.transportType
+        func directionsRequest(_ transportType: MKDirectionsTransportType) -> MKDirections.Request {
+            let request = MKDirections.Request()
+            request.source = MKMapItem(placemark: MKPlacemark(coordinate: routeStart))
+            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: routeEnd))
+            request.requestsAlternateRoutes = false
+            request.transportType = transportType
+            return request
+        }
 
         routeLoadTask = Task {
             do {
-                let response = try await MKDirections(request: request).calculate()
+                let response: MKDirections.Response
+                do {
+                    response = try await MKDirections(request: directionsRequest(mode.transportType)).calculate()
+                } catch {
+                    // Plans ne propose pas d'itinéraire piéton sur les très longues distances :
+                    // on suit alors les routes, toujours à la vitesse du mode choisi.
+                    guard mode.transportType == .walking, !Task.isCancelled else { throw error }
+                    response = try await MKDirections(request: directionsRequest(.automobile)).calculate()
+                }
                 guard !Task.isCancelled else { return }
                 guard let route = response.routes.first else {
                     throw NSError(
@@ -1830,7 +1982,10 @@ struct LocationSimulationView: View {
 
                 let displayCoordinates = sampledRouteCoordinates(
                     from: route.polyline.coordinateArray,
-                    targetDistance: RouteSimulationDefaults.pathSamplingDistance
+                    targetDistance: max(
+                        RouteSimulationDefaults.pathSamplingDistance,
+                        route.distance / RouteSimulationDefaults.maximumDisplayPointCount
+                    )
                 )
                 let routePlan = RouteSimulationPlan(
                     displayCoordinates: displayCoordinates,
@@ -1888,7 +2043,7 @@ struct LocationSimulationView: View {
                     isLoadingRoute = false
                     isPrefetchingRouteSpeeds = false
                     alertTitle = "Trajet impossible"
-                    alertMessage = error.localizedDescription
+                    alertMessage = "Aucun itinéraire trouvé entre ces deux lieux. Essaie un autre mode (avion ou bateau pour traverser la mer) ou d'autres adresses."
                     showAlert = true
                 }
             }
@@ -1975,6 +2130,8 @@ private struct RouteSearchSheet: View {
     @State private var isResolvingSelection = false
     @State private var errorMessage: String?
     @FocusState private var focusedField: RouteSearchField?
+    /// Dernier champ modifié : sert si le clavier est fermé au moment où l'on touche une suggestion.
+    @State private var lastEditedField: RouteSearchField = .start
 
     init(
         initialStart: RouteSearchSelection?,
@@ -1991,18 +2148,21 @@ private struct RouteSearchSheet: View {
     }
 
     private var activeResults: [MKLocalSearchCompletion] {
-        switch focusedField {
+        // Clavier fermé : on garde les suggestions du dernier champ modifié tant qu'il n'a pas de lieu choisi.
+        switch focusedField ?? lastEditedField {
         case .start:
-            return startCompleter.results
+            return startSelection == nil ? startCompleter.results : []
         case .end:
-            return endCompleter.results
-        case .none:
-            return []
+            return endSelection == nil ? endCompleter.results : []
         }
     }
 
+    /// « Utiliser » fonctionne dès que les deux champs sont remplis :
+    /// un lieu tapé sans toucher de suggestion est recherché automatiquement.
     private var canApply: Bool {
-        startSelection != nil && endSelection != nil && !isResolvingSelection
+        let hasStart = startSelection != nil || !startQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasEnd = endSelection != nil || !endQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasStart && hasEnd && !isResolvingSelection
     }
 
     var body: some View {
@@ -2067,7 +2227,7 @@ private struct RouteSearchSheet: View {
                     }
                     .frame(maxHeight: 260)
                 } else {
-                    Text("Cherche un départ et une arrivée pour créer le trajet.")
+                    Text("Tape un départ et une arrivée, puis touche « Utiliser ».")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -2086,10 +2246,9 @@ private struct RouteSearchSheet: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Utiliser") {
-                        guard let startSelection, let endSelection else { return }
-                        onApply(startSelection, endSelection)
-                        dismiss()
+                        applyRoute()
                     }
+                    .fontWeight(.semibold)
                     .disabled(!canApply)
                 }
             }
@@ -2134,7 +2293,9 @@ private struct RouteSearchSheet: View {
                         if field == .start {
                             focusedField = .end
                         } else {
+                            // « Terminé » sur l'arrivée valide directement le trajet.
                             focusedField = nil
+                            if canApply { applyRoute() }
                         }
                     }
             }
@@ -2150,6 +2311,7 @@ private struct RouteSearchSheet: View {
     }
 
     private func update(query: String, for field: RouteSearchField) {
+        if focusedField == field { lastEditedField = field }
         switch field {
         case .start:
             if query != startSelection?.title {
@@ -2164,8 +2326,74 @@ private struct RouteSearchSheet: View {
         }
     }
 
+    /// Valide le trajet. Les champs tapés à la main sont d'abord transformés en lieux.
+    private func applyRoute() {
+        guard !isResolvingSelection else { return }
+        if let startSelection, let endSelection {
+            onApply(startSelection, endSelection)
+            dismiss()
+            return
+        }
+
+        isResolvingSelection = true
+        errorMessage = nil
+        let typedStart = startQuery
+        let typedEnd = endQuery
+        let knownStart = startSelection
+        let knownEnd = endSelection
+        let startSuggestion = startCompleter.results.first
+        let endSuggestion = endCompleter.results.first
+
+        Task { @MainActor in
+            let start: RouteSearchSelection?
+            if let knownStart {
+                start = knownStart
+            } else {
+                start = await Self.lookUp(typedStart, suggestion: startSuggestion)
+            }
+            let end: RouteSearchSelection?
+            if let knownEnd {
+                end = knownEnd
+            } else {
+                end = await Self.lookUp(typedEnd, suggestion: endSuggestion)
+            }
+            isResolvingSelection = false
+
+            guard let start else {
+                errorMessage = "Départ introuvable. Vérifie l'orthographe ou choisis une suggestion."
+                focusedField = .start
+                return
+            }
+            guard let end else {
+                errorMessage = "Arrivée introuvable. Vérifie l'orthographe ou choisis une suggestion."
+                focusedField = .end
+                return
+            }
+            startSelection = start
+            endSelection = end
+            onApply(start, end)
+            dismiss()
+        }
+    }
+
+    /// Cherche un lieu à partir du texte tapé ; la première suggestion affichée passe en priorité.
+    private static func lookUp(_ text: String, suggestion: MKLocalSearchCompletion?) async -> RouteSearchSelection? {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+
+        if let suggestion,
+           let item = try? await MKLocalSearch(request: MKLocalSearch.Request(completion: suggestion)).start().mapItems.first {
+            return RouteSearchSelection(title: query, coordinate: item.placemark.coordinate)
+        }
+
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else { return nil }
+        return RouteSearchSelection(title: query, coordinate: item.placemark.coordinate)
+    }
+
     private func resolve(_ completion: MKLocalSearchCompletion) {
-        let field = focusedField ?? .start
+        let field = focusedField ?? lastEditedField
         let request = MKLocalSearch.Request(completion: completion)
         isResolvingSelection = true
         errorMessage = nil
