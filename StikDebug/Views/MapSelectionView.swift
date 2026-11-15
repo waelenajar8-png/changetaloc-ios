@@ -1137,6 +1137,8 @@ struct LocationSimulationView: View {
             }
         }
         .safeAreaInset(edge: .top) {
+            VStack(spacing: 8) {
+            TrialBadge()
             if locationConnectionNotice != nil || !isDeviceConnected || showConnectedStatus || tunnel.connectionNotice != nil {
                 Group {
                     if let notice = locationConnectionNotice {
@@ -1153,6 +1155,7 @@ struct LocationSimulationView: View {
                     .padding(.horizontal)
             }
         }
+            }
         .task(id: isDeviceConnected) {
             showConnectedStatus = true
             guard isDeviceConnected else { return }

@@ -19,13 +19,13 @@ struct DeviceConnectionStatusView: View {
     }
 
     private var title: String {
-        if tunnel.isStarting { return String(localized: "Connecting…") }
+        if tunnel.isStarting { return "Connexion à l'iPhone…" }
         if let diagnosis { return diagnosis.title }
-        if !tunnel.isConnected { return String(localized: "Device not connected") }
-        if isReadingApps { return String(localized: "Connecting…") }
-        if errorMessage != nil { return String(localized: "Connection error") }
-        if !hasConfirmedApps { return String(localized: "App list unavailable") }
-        return String(localized: "Device connected")
+        if !tunnel.isConnected { return "iPhone non connecté" }
+        if isReadingApps { return "Connexion à l'iPhone…" }
+        if errorMessage != nil { return "Erreur de connexion" }
+        if !hasConfirmedApps { return "Connexion incomplète" }
+        return "iPhone connecté"
     }
 
     private var diagnosisSummary: some View {
@@ -83,7 +83,7 @@ struct DeviceConnectionStatusView: View {
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel(didCopy ? "Error copied" : "Copy Error")
+                .accessibilityLabel(didCopy ? "Erreur copiée" : "Copier l’erreur")
                 .task(id: didCopy) {
                     guard didCopy else { return }
                     try? await Task.sleep(for: .seconds(1.2))

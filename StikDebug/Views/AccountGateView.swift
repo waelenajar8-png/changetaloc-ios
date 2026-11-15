@@ -29,11 +29,6 @@ struct AccountGateView: View {
             case .allowed:
                 MainTabView()
                     .transition(.opacity)
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        if account.status == "trialing", let left = account.trialSecondsLeft {
-                            TrialBanner(secondsLeft: left)
-                        }
-                    }
             }
         }
         .transition(.opacity)
@@ -270,16 +265,29 @@ private struct BlockedView: View {
     }
 }
 
-private struct TrialBanner: View {
-    var secondsLeft: Int
+// Pastille d'essai affichée sous la barre de recherche de la carte, sans masquer les boutons.
+struct TrialBadge: View {
+    @ObservedObject private var account = AccountStore.shared
 
     var body: some View {
-        let minutes = max(Int((Double(secondsLeft) / 60).rounded(.up)), 0)
-        Text("Essai gratuit : \(minutes) min restantes")
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.black)
+        if account.status == "trialing", let left = account.trialSecondsLeft {
+            let minutes = max(Int((Double(left) / 60).rounded(.up)), 0)
+            Link(destination: account.buyURL) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.fill")
+                    Text("Essai : \(minutes) min restantes")
+                        .contentTransition(.numericText())
+                    Text("· Passer à l'abonnement")
+                        .opacity(0.7)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(brandYellow, in: Capsule())
+                .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+            }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(brandYellow)
+        }
     }
 }
