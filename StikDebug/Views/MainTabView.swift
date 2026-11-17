@@ -56,7 +56,7 @@ enum AppRelease {
     /// Numéro de cette version de l'app. Pour annoncer une mise à jour aux clients :
     /// augmenter ce numéro de 1, publier l'app, puis mettre le même numéro dans
     /// LATEST_RELEASE sur le site (app/api/app/version). Les anciennes versions affichent alors le bandeau.
-    static let current = 1
+    static let current = 2
 }
 
 /// Demande au site s'il existe une version plus récente de l'app.
@@ -133,6 +133,7 @@ struct MainTabView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
     @State private var detachedFeature: AppFeature?
+    @AppStorage("didShowWelcomeGuide") private var didShowWelcomeGuide = false
     @State private var didSetInitialHome = false
     @State private var pendingLocationAction: ExternalLocationAction?
 
@@ -193,6 +194,16 @@ struct MainTabView: View {
                 }
             } message: { action in
                 Text(action.message)
+            }
+            .fullScreenCover(isPresented: Binding(
+                get: { !didShowWelcomeGuide },
+                set: { isPresented in
+                    if !isPresented { didShowWelcomeGuide = true }
+                }
+            )) {
+                WelcomeGuideView {
+                    didShowWelcomeGuide = true
+                }
             }
             .sheet(item: $detachedFeature) { feature in
                 NavigationStack {
