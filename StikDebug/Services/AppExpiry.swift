@@ -38,15 +38,15 @@ enum AppExpiry {
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let reminders: [(String, TimeInterval, String)] = [
-                (ids[0], 24 * 3600, "ChangeTaLoc expire demain"),
-                (ids[1], 2 * 3600, "ChangeTaLoc expire dans 2 h"),
+                (ids[0], 24 * 3600, "Petit renouvellement d'1 minute"),
+                (ids[1], 2 * 3600, "Pense à renouveler ChangeTaLoc"),
             ]
             for (id, before, title) in reminders {
                 let fireDate = expirationDate.addingTimeInterval(-before)
                 guard fireDate > Date() else { continue }
                 let content = UNMutableNotificationContent()
                 content.title = title
-                content.body = "Rebranche ton iPhone à l'ordinateur et clique sur « Mettre à jour ou renouveler » dans l'assistant. 2 minutes, et c'est reparti pour 7 jours."
+                content.body = "Branche ton iPhone à ton ordi, ouvre l'assistant ChangeTaLoc et clique sur « Mettre à jour ou renouveler ». C'est tout : tes réglages sont gardés."
                 content.sound = .default
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fireDate.timeIntervalSinceNow, repeats: false)
                 center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
@@ -56,23 +56,67 @@ enum AppExpiry {
 }
 
 /// Pastille affichée en haut de la carte quand il reste 2 jours ou moins.
+/// Ton rassurant : c'est un geste d'une minute, pas un problème.
 struct ExpiryBadge: View {
+    @State private var expanded = false
+
+    private var title: String {
+        switch AppExpiry.daysLeft() ?? 0 {
+        case 0: return "Petit renouvellement à faire aujourd'hui"
+        case 1: return "Petit renouvellement à faire d'ici demain"
+        default: return "Petit renouvellement à faire d'ici 2 jours"
+        }
+    }
+
     var body: some View {
         if let days = AppExpiry.daysLeft(), days <= 2 {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(days == 0 ? "Ton app expire aujourd'hui" : (days == 1 ? "Ton app expire demain" : "Ton app expire dans 2 jours"))
-                        .font(.subheadline.weight(.semibold))
-                    Text("Rebranche ton iPhone à l'ordinateur et clique sur « Mettre à jour ou renouveler » dans l'assistant.")
-                        .font(.caption)
-                        .fixedSize(horizontal: false, vertical: true)
+            Button {
+                withAnimation(.snappy) { expanded.toggle() }
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Text("1 min")
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.12), in: Capsule())
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.bold))
+                    }
+                    if expanded {
+                        VStack(alignment: .leading, spacing: 6) {
+                            step("1", "Branche ton iPhone à ton ordinateur.")
+                            step("2", "Ouvre l'assistant ChangeTaLoc.")
+                            step("3", "Clique sur « Mettre à jour ou renouveler ».")
+                            Text("C'est tout. Tes réglages et tes favoris sont gardés, et c'est reparti pour 7 jours.")
+                                .font(.caption)
+                                .opacity(0.8)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
-                Spacer(minLength: 0)
+                .foregroundStyle(.black)
+                .padding(12)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .foregroundStyle(.black)
-            .padding(12)
-            .background(Color.orange, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func step(_ number: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(number)
+                .font(.caption.weight(.bold))
+                .frame(width: 20, height: 20)
+                .background(Color.black.opacity(0.12), in: Circle())
+            Text(text)
+                .font(.footnote.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
