@@ -34,6 +34,20 @@ struct DeviceConnectionStatusView: View {
             if !isWorking, let diagnosis {
                 Text(diagnosis.message)
                     .font(.subheadline)
+            } else if !isWorking, !tunnel.isConnected {
+                // Cause encore inconnue : on donne quand même les deux gestes qui règlent presque tout.
+                Text("Vérifie que LocalDevVPN est activé. En 4G/5G, active le mode avion, puis touche Réessayer.")
+                    .font(.subheadline)
+            }
+            if !isWorking, !tunnel.isConnected || diagnosis != nil {
+                Button {
+                    TunnelManager.shared.restart()
+                } label: {
+                    Label("Réessayer", systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderless)
+                .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -51,14 +65,14 @@ struct DeviceConnectionStatusView: View {
                 diagnosisSummary
                 if !isWorking, diagnosis?.canConnectVPN == true {
                     Button(action: connectLocalDevVPN) {
-                        Text("Tap here to connect the VPN")
+                        Text("Ouvrir LocalDevVPN")
                             .font(.subheadline)
                             .foregroundStyle(.tint)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityHint("Opens LocalDevVPN")
+                    .accessibilityHint("Ouvre l'app LocalDevVPN")
                 }
                 if !isWorking, tunnel.isConnected, errorMessage == nil, let notice = tunnel.connectionNotice {
                     Text(notice)

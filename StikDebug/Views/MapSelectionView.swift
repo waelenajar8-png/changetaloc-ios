@@ -1485,6 +1485,20 @@ struct LocationSimulationView: View {
         return "Crée un trajet avec le bouton en haut."
     }
 
+    /// Icône + petit mot en dessous : sans texte, personne ne devine ce que fait chaque bouton.
+    private func toolbarLabel(_ icon: String, _ title: String) -> some View {
+        VStack(spacing: 1) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+    }
+
     private var routeAttributionLink: some View {
         Link(
             "Vitesses de route © contributeurs OpenStreetMap (ODbL)",
@@ -1636,6 +1650,7 @@ struct LocationSimulationView: View {
         .safeAreaInset(edge: .top) {
             VStack(spacing: 8) {
             TrialBadge()
+            ExpiryBadge()
             if locationConnectionNotice != nil || !isDeviceConnected || showConnectedStatus || tunnel.connectionNotice != nil {
                 Group {
                     if let notice = locationConnectionNotice {
@@ -1676,20 +1691,20 @@ struct LocationSimulationView: View {
                 Button {
                     showBookmarks = true
                 } label: {
-                    Image(systemName: "list.star")
+                    toolbarLabel("list.star", "Favoris")
                 }
 
                 Button {
                     showRouteSearch = true
                 } label: {
-                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    toolbarLabel("point.topleft.down.curvedto.point.bottomright.up", "Trajet")
                 }
                 .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
 
                 Button {
                     showCircuits = true
                 } label: {
-                    Image(systemName: "map")
+                    toolbarLabel("map", "Circuits")
                 }
                 .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
                 .accessibilityLabel("Circuits tout prêts")
@@ -1789,6 +1804,7 @@ struct LocationSimulationView: View {
         }
         .onAppear {
             loadBookmarks()
+            AppExpiry.scheduleReminders()
             if let routeCoordinates = simulationSession.routeCoordinates {
                 coordinate = nil
                 routePolyline = makeRoutePolyline(for: routeCoordinates)
@@ -2084,6 +2100,16 @@ struct LocationSimulationView: View {
                 .accessibilityLabel("Enregistrer ce lieu")
             }
 
+            if hasActiveSimulation && !isRouteRunning {
+                // Sans ce rappel, beaucoup croient que ça n'a pas marché : Snap garde l'ancienne loc tant qu'il est ouvert.
+                Label("Ferme complètement Snapchat (glisse-le vers le haut), puis rouvre-le pour voir ta nouvelle loc.", systemImage: "info.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+
             Button(action: simulate) {
                 HStack(spacing: 8) {
                     if isBusy {
@@ -2091,7 +2117,7 @@ struct LocationSimulationView: View {
                     } else {
                         Image(systemName: "location.fill")
                     }
-                    Text(hasActiveSimulation ? "Me déplacer ici" : "Changer ma position ici")
+                    Text("Changer ma position ici")
                 }
                 .font(.headline)
                 .foregroundStyle(.black)
@@ -2494,6 +2520,10 @@ struct LocationSimulationView: View {
             beginBackgroundTask()
             LocationSimulationSession.shared.clearRoute()
             startResendLoop(with: firstCoordinate)
+            // Pas de retour automatique pendant l'attente : il annulerait le départ programmé.
+            // Il est relancé à l'arrivée du trajet.
+            autoReturnTask?.cancel()
+            autoReturnTask = nil
             routePlaybackCoordinate = firstCoordinate
             departureWaitTask?.cancel()
             departureWaitTask = Task { @MainActor in
@@ -2671,8 +2701,10 @@ struct LocationSimulationView: View {
 
             HStack(spacing: 10) {
                 Button(action: clear) {
-                    Label("Retour réel", systemImage: "arrow.uturn.backward")
+                    Label("Retour à ma vraie position", systemImage: "arrow.uturn.backward")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }

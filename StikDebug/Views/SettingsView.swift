@@ -84,6 +84,14 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 4)
                     }
+                    if let expiry = AppExpiry.expirationText {
+                        LabeledContent {
+                            Text(expiry)
+                                .foregroundStyle((AppExpiry.daysLeft() ?? 7) <= 2 ? Color.orange : Color.secondary)
+                        } label: {
+                            Label("App valable jusqu'au", systemImage: "calendar.badge.clock")
+                        }
+                    }
                     Link(destination: URL(string: "https://changetaloc.com/compte")!) {
                         Label("Gérer mon abonnement", systemImage: "creditcard")
                     }

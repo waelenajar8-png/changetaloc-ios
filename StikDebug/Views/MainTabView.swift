@@ -45,7 +45,7 @@ private enum ExternalLocationAction: Identifiable {
         case .simulate:
             return "Changer la position"
         case .clear:
-            return "Retour réel"
+            return "Retour à ma vraie position"
         }
     }
 }
@@ -107,7 +107,7 @@ struct MainTabView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Nouvelle version disponible")
                     .font(.subheadline.weight(.semibold))
-                Text("Rebranche ton iPhone à l'ordinateur et clique sur « Mettre à jour » dans l'assistant ChangeTaLoc.")
+                Text("Rebranche ton iPhone à l'ordinateur et clique sur « Mettre à jour ou renouveler » dans l'assistant ChangeTaLoc.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

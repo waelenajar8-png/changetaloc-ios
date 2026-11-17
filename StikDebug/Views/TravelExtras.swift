@@ -512,7 +512,12 @@ struct DepartureTimeSheet: View {
 
     private var range: ClosedRange<Date> {
         let now = Date()
-        return now...now.addingTimeInterval(7 * 24 * 3600)
+        var limit = now.addingTimeInterval(7 * 24 * 3600)
+        // Pas au-delà de l'expiration de l'app : le trajet ne pourrait pas partir.
+        if let expiry = AppExpiry.expirationDate, expiry > now.addingTimeInterval(120) {
+            limit = min(limit, expiry.addingTimeInterval(-60))
+        }
+        return now...limit
     }
 
     /// Raccourcis : dans 1 h, ce soir 20 h, demain 8 h, demain 12 h.
@@ -544,6 +549,13 @@ struct DepartureTimeSheet: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+
+                    if let expiry = AppExpiry.expirationText {
+                        Text("Ton app est valable jusqu'au \(expiry) : choisis un départ avant.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .multilineTextAlignment(.center)
+                    }
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
