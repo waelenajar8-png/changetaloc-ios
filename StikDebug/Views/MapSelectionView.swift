@@ -56,7 +56,7 @@ private enum RouteSimulationDefaults {
 
 /// Façon de se déplacer le long d'un trajet. Fixe la vitesse et le type d'itinéraire.
 private enum TravelMode: String, CaseIterable, Identifiable {
-    case walk, bike, moto, car, custom, boat, plane
+    case walk, bike, moto, car, train, custom, boat, plane
 
     var id: String { rawValue }
 
@@ -66,6 +66,7 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         case .bike: return "Vélo"
         case .moto: return "Moto"
         case .car: return "Voiture"
+        case .train: return "Train"
         case .custom: return "Vitesse libre"
         case .boat: return "Bateau"
         case .plane: return "Avion"
@@ -78,13 +79,15 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         case .bike: return "bicycle"
         case .moto: return "scooter"
         case .car: return "car.fill"
+        case .train: return "tram.fill"
         case .custom: return "speedometer"
         case .boat: return "ferry.fill"
         case .plane: return "airplane"
         }
     }
 
-    /// Le bateau et l'avion vont en ligne droite ; les autres suivent les routes.
+    /// Le bateau et l'avion vont en ligne droite ; les autres suivent les grands axes terrestres
+    /// (le train suit l'itinéraire terrestre, qui longe le plus souvent les voies ferrées).
     var followsRoads: Bool {
         self != .boat && self != .plane
     }
@@ -99,6 +102,7 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         case .walk: return "5 km/h"
         case .bike: return "18 km/h"
         case .moto, .car: return "Vitesse des routes"
+        case .train: return "200 km/h"
         case .custom: return "\(Int(customKmh)) km/h"
         case .boat: return "40 km/h"
         case .plane: return "850 km/h"
@@ -112,6 +116,7 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         case .bike: return 18.0 / 3.6
         case .moto: return nil
         case .car: return nil
+        case .train: return 200.0 / 3.6
         case .custom: return min(max(customKmh, 1.0), RouteSimulationDefaults.customSpeedRangeKmh.upperBound) / 3.6
         case .boat: return 40.0 / 3.6
         case .plane: return 850.0 / 3.6
