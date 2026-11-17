@@ -527,6 +527,64 @@ private func buildJourneyPlans(
     return plans
 }
 
+/// Trajet avec étapes : chaque tronçon suit le mode choisi, avec une pause à chaque étape.
+private func buildStopsPlan(
+    points: [CLLocationCoordinate2D],
+    mode: TravelMode,
+    customKmh: Double,
+    pauseSeconds: TimeInterval
+) async throws -> (plan: RouteSimulationPlan, samples: [RoutePlaybackSample]) {
+    let fixedSpeed = mode.fixedSpeed(customKmh: customKmh)
+    var displayCoordinates: [CLLocationCoordinate2D] = []
+    var samples: [RoutePlaybackSample] = []
+    var totalDistance: CLLocationDistance = 0
+    var totalDuration: TimeInterval = 0
+    let legCount = points.count - 1
+    guard legCount > 0 else {
+        throw NSError(domain: "RouteSimulation", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aucun itinéraire trouvé."])
+    }
+
+    for index in 0..<legCount {
+        try Task.checkCancellation()
+        let from = points[index]
+        let to = points[index + 1]
+        let segment: JourneySegment
+        if mode.followsRoads {
+            segment = try await roadSegment(from: from, to: to, transportType: mode.transportType, fixedSpeed: fixedSpeed)
+        } else {
+            segment = directSegment(from: from, to: to, greatCircle: mode == .plane, speed: fixedSpeed ?? 13.4)
+        }
+        guard !segment.coordinates.isEmpty else { continue }
+
+        // On relie chaque tronçon à la fin du précédent pour éviter tout saut de position.
+        let path = (displayCoordinates.last.map { [$0] } ?? []) + segment.coordinates
+        let legSamples = buildPlaybackSamples(from: path, speedWays: [], fallbackSpeedMetersPerSecond: segment.speed)
+        samples.append(contentsOf: samples.isEmpty ? legSamples : Array(legSamples.dropFirst()))
+        displayCoordinates.append(contentsOf: segment.coordinates)
+        totalDistance += segment.distance
+        totalDuration += segment.distance / max(segment.speed, RouteSimulationDefaults.minimumSpeedMetersPerSecond)
+
+        // Pause à chaque étape (pas à l'arrivée) : la position reste sur place et continue d'être envoyée.
+        if index < legCount - 1, pauseSeconds > 0, let stop = displayCoordinates.last {
+            var remaining = pauseSeconds
+            while remaining > 0 {
+                let delay = min(5, remaining)
+                samples.append(RoutePlaybackSample(coordinate: stop, delayFromPrevious: delay))
+                remaining -= delay
+            }
+            totalDuration += pauseSeconds
+        }
+    }
+
+    guard displayCoordinates.count > 1 else {
+        throw NSError(domain: "RouteSimulation", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aucun itinéraire trouvé."])
+    }
+    return (
+        RouteSimulationPlan(displayCoordinates: displayCoordinates, distance: totalDistance, expectedTravelTime: totalDuration),
+        samples
+    )
+}
+
 private struct OpenStreetMapWay {
     let geometry: [CLLocationCoordinate2D]
     let speedLimitMetersPerSecond: CLLocationSpeed
@@ -1299,6 +1357,19 @@ struct LocationSimulationView: View {
     @State private var journeyNotes: [String] = []
     /// Trajet complet calculé pour chaque façon de rejoindre la gare : on passe de l'un à l'autre sans recalcul.
     @State private var journeyPlans: [AccessMode: JourneyPlan] = [:]
+    // Étapes, pauses et départ programmé.
+    @State private var routeStops: [RouteSearchSelection] = []
+    @AppStorage("stopPauseMinutes") private var stopPauseMinutes = 0
+    @State private var showStopSearch = false
+    @State private var showCircuits = false
+    @State private var showDeparturePicker = false
+    @State private var scheduledDeparture: Date?
+    @State private var departureWaitTask: Task<Void, Never>?
+    // Manette : se déplacer en direct.
+    @State private var joystickEnabled = false
+    @State private var joystickVector: CGVector = .zero
+    @AppStorage("joystickSpeed") private var joystickSpeedRaw = JoystickSpeed.walk.rawValue
+    @State private var joystickTask: Task<Void, Never>?
     private var travelMode: TravelMode {
         TravelMode(rawValue: travelModeRaw) ?? .car
     }
@@ -1470,6 +1541,10 @@ struct LocationSimulationView: View {
                             Marker("Arrivée", coordinate: routeEndCoordinate)
                                 .tint(.red)
                         }
+                        ForEach(Array(routeStops.enumerated()), id: \.offset) { index, stop in
+                            Marker("Étape \(index + 1) · \(stop.title)", systemImage: "flag.fill", coordinate: stop.coordinate)
+                                .tint(.purple)
+                        }
                         ForEach(Array(journeyHubs.enumerated()), id: \.offset) { _, hub in
                             Marker(hub.name, systemImage: hub.systemImage, coordinate: hub.coordinate)
                                 .tint(.orange)
@@ -1499,7 +1574,7 @@ struct LocationSimulationView: View {
             }
                 .ignoresSafeArea()
                 .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
-                    if let new {
+                    if let new, !joystickEnabled {
                         withAnimation(.easeInOut(duration: 0.9)) {
                         position = .region(
                             MKCoordinateRegion(
@@ -1608,6 +1683,14 @@ struct LocationSimulationView: View {
                 .disabled(isBusy || isRouteRunning)
 
                 Button {
+                    showCircuits = true
+                } label: {
+                    Image(systemName: "map")
+                }
+                .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
+                .accessibilityLabel("Circuits tout prêts")
+
+                Button {
                     showCoordinateImporter = true
                 } label: {
                     Image(systemName: "square.and.arrow.down")
@@ -1670,6 +1753,29 @@ struct LocationSimulationView: View {
                 refreshRoute()
             }
         }
+        .sheet(isPresented: $showCircuits) {
+            CircuitsSheet { circuit in
+                showCircuits = false
+                loadCircuit(circuit)
+            }
+        }
+        .sheet(isPresented: $showStopSearch) {
+            StopSearchSheet { title, stopCoordinate in
+                showStopSearch = false
+                routeStops.append(RouteSearchSelection(title: title, coordinate: stopCoordinate))
+                refreshRoute()
+            }
+        }
+        .sheet(isPresented: $showDeparturePicker) {
+            DepartureTimeSheet(initial: scheduledDeparture ?? Date().addingTimeInterval(15 * 60)) { date in
+                scheduledDeparture = date
+                showDeparturePicker = false
+            } onDepartNow: {
+                scheduledDeparture = nil
+                showDeparturePicker = false
+            }
+            .presentationDetents([.medium, .large])
+        }
         .fileImporter(
             isPresented: $showCoordinateImporter,
             allowedContentTypes: CoordinateImportParser.supportedContentTypes,
@@ -1697,6 +1803,7 @@ struct LocationSimulationView: View {
             }
         }
         .onDisappear {
+            stopJoystickLoop()
             locationConnectionNotice = nil
             routeLoadTask?.cancel()
             routeLoadTask = nil
@@ -1991,6 +2098,8 @@ struct LocationSimulationView: View {
             .disabled(!pairingExists || isBusy || isLoadingRoute)
             .opacity(!pairingExists ? 0.5 : 1)
 
+            joystickSection
+
             if hasActiveSimulation {
                 Button(action: clear) {
                     Label("Retour à ma vraie position", systemImage: "arrow.uturn.backward")
@@ -2144,6 +2253,288 @@ struct LocationSimulationView: View {
         }
     }
 
+    /// Manette : la position avance en direct dans la direction choisie.
+    @ViewBuilder
+    private var joystickSection: some View {
+        if hasActiveSimulation && !isRouteRunning {
+            VStack(spacing: 10) {
+                Button {
+                    if joystickEnabled {
+                        stopJoystickLoop()
+                    } else {
+                        joystickEnabled = true
+                        startJoystickLoop()
+                    }
+                } label: {
+                    Label(joystickEnabled ? "Fermer la manette" : "Manette : avancer en direct", systemImage: "gamecontroller.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .foregroundStyle(.primary)
+                .disabled(isBusy)
+
+                if joystickEnabled {
+                    HStack(alignment: .center, spacing: 14) {
+                        JoystickPad(vector: $joystickVector, size: 128)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(JoystickSpeed.allCases) { speed in
+                                let selected = speed.rawValue == joystickSpeedRaw
+                                Button {
+                                    joystickSpeedRaw = speed.rawValue
+                                } label: {
+                                    Label("\(speed.title) · \(speed.kmh) km/h", systemImage: speed.systemImage)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 10)
+                                        .frame(minHeight: 30)
+                                        .foregroundStyle(selected ? Color.black : Color.primary)
+                                        .background(
+                                            selected ? Color.accentColor : Color.primary.opacity(0.08),
+                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        )
+                                }
+                                .buttonStyle(PressableButtonStyle())
+                            }
+                        }
+                    }
+                    Text("Fais glisser le rond vers où tu veux aller : ta position avance en direct. Relâche pour t'arrêter.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+        }
+    }
+
+    private func startJoystickLoop() {
+        joystickTask?.cancel()
+        joystickTask = Task { @MainActor in
+            let tick: Double = 0.5
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(tick * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                guard joystickEnabled, hasActiveSimulation, !isRouteRunning, !isBusy,
+                      let current = simulatedCoordinate ?? coordinate else { continue }
+                let east = Double(joystickVector.dx)
+                let north = Double(joystickVector.dy)
+                let magnitude = min(1, (east * east + north * north).squareRoot())
+                guard magnitude > 0.12 else { continue }
+                let speed = (JoystickSpeed(rawValue: joystickSpeedRaw) ?? .walk).metersPerSecond
+                let next = joystickStep(from: current, east: east, north: north, meters: speed * tick * magnitude)
+                coordinate = next
+                LocationSimulationCommandQueue.shared.async {
+                    _ = locationUpdateCode(for: next)
+                }
+                startResendLoop(with: next)
+                withAnimation(.linear(duration: tick)) {
+                    position = .region(MKCoordinateRegion(center: next, latitudinalMeters: 600, longitudinalMeters: 600))
+                }
+            }
+        }
+    }
+
+    private func stopJoystickLoop() {
+        joystickTask?.cancel()
+        joystickTask = nil
+        joystickEnabled = false
+        joystickVector = .zero
+    }
+
+    /// Étapes du trajet et pause à chaque étape.
+    @ViewBuilder
+    private var stopsSection: some View {
+        if !isRouteRunning && departureWaitTask == nil {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label(routeStops.isEmpty ? "Étapes" : "Étapes (\(routeStops.count))", systemImage: "flag.fill")
+                        .font(.footnote.weight(.semibold))
+                    Spacer()
+                    Button {
+                        showStopSearch = true
+                    } label: {
+                        Label("Ajouter une étape", systemImage: "plus")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 30)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .foregroundStyle(.primary)
+                    .disabled(isBusy || routeStops.count >= 10)
+                }
+
+                ForEach(Array(routeStops.enumerated()), id: \.offset) { index, stop in
+                    HStack(spacing: 8) {
+                        Text("\(index + 1)")
+                            .font(.caption2.weight(.bold))
+                            .frame(width: 20, height: 20)
+                            .background(Color.purple.opacity(0.3), in: Circle())
+                        Text(stop.title)
+                            .font(.caption)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button {
+                            guard routeStops.indices.contains(index) else { return }
+                            routeStops.remove(at: index)
+                            refreshRoute()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Retirer l'étape \(index + 1)")
+                    }
+                }
+
+                if !routeStops.isEmpty {
+                    HStack {
+                        Text("Pause à chaque étape")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Pause à chaque étape", selection: $stopPauseMinutes) {
+                            Text("Aucune").tag(0)
+                            Text("2 min").tag(2)
+                            Text("5 min").tag(5)
+                            Text("15 min").tag(15)
+                            Text("30 min").tag(30)
+                            Text("1 h").tag(60)
+                        }
+                        .pickerStyle(.menu)
+                        .onChange(of: stopPauseMinutes) { _, _ in
+                            refreshRoute()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Heure de départ : maintenant, ou à l'heure choisie (avec compte à rebours).
+    @ViewBuilder
+    private var departureSection: some View {
+        if departureWaitTask != nil, let scheduledDeparture {
+            VStack(spacing: 8) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Label(
+                        "Départ à \(scheduledDeparture.formatted(date: .omitted, time: .shortened)) · dans \(departureCountdownText(until: scheduledDeparture, now: context.date))",
+                        systemImage: "clock.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                }
+                Text("Tu es déjà au point de départ. Garde l'app ouverte : le trajet démarre tout seul.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                HStack(spacing: 10) {
+                    Button(action: startScheduledRouteNow) {
+                        Label("Partir maintenant", systemImage: "play.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    Button(action: cancelScheduledDeparture) {
+                        Label("Annuler", systemImage: "xmark")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .foregroundStyle(.primary)
+                }
+            }
+        } else if !isRouteRunning {
+            Button {
+                showDeparturePicker = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                    Text(scheduledDeparture.map { "Départ à \($0.formatted(date: .omitted, time: .shortened))" } ?? "Départ : maintenant")
+                    Spacer()
+                    Text(scheduledDeparture == nil ? "Programmer" : "Modifier")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 40)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(PressableButtonStyle())
+            .foregroundStyle(.primary)
+            .disabled(isBusy)
+        }
+    }
+
+    /// Lance le trajet tout de suite, ou place au départ et attend l'heure programmée.
+    private func launchRoute() {
+        guard let departure = scheduledDeparture, departure.timeIntervalSinceNow > 5 else {
+            scheduledDeparture = nil
+            simulateRoute()
+            return
+        }
+        guard pairingExists, let firstCoordinate = routePlaybackSamples.first?.coordinate, !isBusy else { return }
+        runLocationCommand(
+            errorTitle: "Départ impossible",
+            errorMessage: { code in
+                "Impossible de se placer au point de départ (erreur \(code)). Vérifie que LocalDevVPN est activé."
+            },
+            operation: { locationUpdateCode(for: firstCoordinate) }
+        ) {
+            beginBackgroundTask()
+            LocationSimulationSession.shared.clearRoute()
+            startResendLoop(with: firstCoordinate)
+            routePlaybackCoordinate = firstCoordinate
+            departureWaitTask?.cancel()
+            departureWaitTask = Task { @MainActor in
+                let wait = departure.timeIntervalSinceNow
+                if wait > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                }
+                guard !Task.isCancelled else { return }
+                departureWaitTask = nil
+                scheduledDeparture = nil
+                simulateRoute()
+            }
+        }
+    }
+
+    private func startScheduledRouteNow() {
+        departureWaitTask?.cancel()
+        departureWaitTask = nil
+        scheduledDeparture = nil
+        simulateRoute()
+    }
+
+    private func cancelScheduledDeparture() {
+        departureWaitTask?.cancel()
+        departureWaitTask = nil
+        scheduledDeparture = nil
+    }
+
+    /// Charge un circuit tout prêt : départ, étapes, arrivée et mode conseillé.
+    private func loadCircuit(_ circuit: TourCircuit) {
+        guard !isRouteRunning, circuit.stops.count >= 2 else { return }
+        stopJoystickLoop()
+        resetRouteSelection()
+        coordinate = nil
+        let selections = circuit.stops.map {
+            RouteSearchSelection(title: $0.name, coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude))
+        }
+        routeStartSelection = selections.first
+        routeEndSelection = selections.last
+        routeStops = Array(selections.dropFirst().dropLast())
+        if TravelMode(rawValue: circuit.mode) != nil {
+            travelModeRaw = circuit.mode
+        }
+        refreshRoute()
+    }
+
     private var routeControls: some View {
         VStack(spacing: 10) {
             Text(routeStatusText)
@@ -2199,7 +2590,11 @@ struct LocationSimulationView: View {
                 refreshRoute()
             }
 
-            journeyOptions
+            if routeStops.isEmpty {
+                journeyOptions
+            }
+
+            stopsSection
 
             if travelMode == .custom {
                 HStack(spacing: 10) {
@@ -2232,14 +2627,17 @@ struct LocationSimulationView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            Button(action: simulateRoute) {
+            departureSection
+
+            if departureWaitTask == nil {
+            Button(action: launchRoute) {
                 HStack(spacing: 8) {
                     if isBusy || isLoadingRoute || isPrefetchingRouteSpeeds {
                         ProgressView().tint(.black)
                     } else {
-                        Image(systemName: isRouteRunning ? "location.north.line.fill" : "play.fill")
+                        Image(systemName: isRouteRunning ? "location.north.line.fill" : (scheduledDeparture != nil ? "clock.fill" : "play.fill"))
                     }
-                    Text(isRouteRunning ? "Trajet en cours" : "Lancer le trajet")
+                    Text(isRouteRunning ? "Trajet en cours" : (scheduledDeparture != nil ? "Programmer le départ" : "Lancer le trajet"))
                 }
                 .font(.headline)
                 .foregroundStyle(.black)
@@ -2256,6 +2654,7 @@ struct LocationSimulationView: View {
                 routePlan == nil ||
                 routePlaybackSamples.isEmpty
             )
+            }
 
             HStack(spacing: 10) {
                 Button(action: clear) {
@@ -2353,6 +2752,8 @@ struct LocationSimulationView: View {
 
     private func clear() {
         guard pairingExists, !isBusy else { return }
+        cancelScheduledDeparture()
+        stopJoystickLoop()
         autoReturnTask?.cancel()
         autoReturnTask = nil
         routeLoadTask?.cancel()
@@ -2451,6 +2852,8 @@ struct LocationSimulationView: View {
         routeSpeedPrefetchTask = nil
         routeRequestID = UUID()
         setRoutePlan(nil)
+        cancelScheduledDeparture()
+        routeStops = []
         routeStartSelection = nil
         routeEndSelection = nil
         routePlaybackSamples = []
@@ -2476,6 +2879,46 @@ struct LocationSimulationView: View {
         routeRequestID = requestID
         let mode = travelMode
         let fixedSpeed = mode.fixedSpeed(customKmh: customSpeedKmh)
+
+        if !routeStops.isEmpty {
+            isLoadingRoute = true
+            isPrefetchingRouteSpeeds = false
+            let points = [routeStart] + routeStops.map(\.coordinate) + [routeEnd]
+            let pauseSeconds = TimeInterval(max(stopPauseMinutes, 0) * 60)
+            let customKmh = customSpeedKmh
+            routeLoadTask = Task {
+                do {
+                    let result = try await buildStopsPlan(points: points, mode: mode, customKmh: customKmh, pauseSeconds: pauseSeconds)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        guard routeRequestID == requestID else { return }
+                        setRoutePlan(result.plan)
+                        routePlaybackSamples = result.samples
+                        isLoadingRoute = false
+                        isPrefetchingRouteSpeeds = false
+                        if let routePolyline {
+                            position = .rect(routePolyline.boundingMapRect)
+                        }
+                    }
+                } catch is CancellationError {
+                    await MainActor.run {
+                        guard routeRequestID == requestID else { return }
+                        isLoadingRoute = false
+                        isPrefetchingRouteSpeeds = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard routeRequestID == requestID else { return }
+                        isLoadingRoute = false
+                        isPrefetchingRouteSpeeds = false
+                        alertTitle = "Trajet impossible"
+                        alertMessage = "Une des étapes n'est pas joignable avec ce mode. Essaie un autre mode ou retire l'étape."
+                        showAlert = true
+                    }
+                }
+            }
+            return
+        }
 
         if useTransportHubs, let hubKind = mode.hubKind {
             isLoadingRoute = true
