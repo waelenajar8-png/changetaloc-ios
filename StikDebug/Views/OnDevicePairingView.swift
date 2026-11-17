@@ -10,7 +10,7 @@ struct OnDevicePairingView: View {
         Form {
             content
         }
-        .navigationTitle("Create Pairing File")
+        .navigationTitle("Associer cet iPhone")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.default, value: service.phase)
         .sheet(isPresented: $showingAppPlacement) {
@@ -32,16 +32,10 @@ struct OnDevicePairingView: View {
                     pairingAppleTV = false
                     service.start(discoverAppleTVs: false)
                 } label: {
-                    Label("Pair iPhone or iPad", systemImage: "iphone")
-                }
-                Button {
-                    pairingAppleTV = true
-                    service.start(advertisePhone: false)
-                } label: {
-                    Label("Pair Apple TV", systemImage: "appletv")
+                    Label("Associer cet iPhone", systemImage: "iphone")
                 }
             } footer: {
-                Text("Create a pairing file without a computer. The iPhone or iPad being paired must run iOS or iPadOS 27 or later. Apple TV pairing is also supported.")
+                Text("Crée le fichier de jumelage sans ordinateur. L'iPhone doit être sous iOS 27 ou plus récent. Sinon, rebranche simplement ton iPhone à l'ordinateur et relance l'assistant ChangeTaLoc.")
             }
 
         case .discovering:
@@ -50,7 +44,7 @@ struct OnDevicePairingView: View {
                     if service.appleTVDevices.isEmpty {
                         HStack(spacing: 12) {
                             ProgressView()
-                            Text("Looking for Apple TVs…")
+                            Text("Recherche des Apple TV…")
                                 .foregroundStyle(.secondary)
                         }
                     } else {
@@ -64,27 +58,27 @@ struct OnDevicePairingView: View {
                         }
                     }
                 } header: {
-                    Text("Choose an Apple TV")
+                    Text("Choisis une Apple TV")
                 } footer: {
-                    Text("On Apple TV, open Settings › Remotes and Devices › Remote App and Devices.")
+                    Text("Sur l'Apple TV, ouvre Réglages › Télécommandes et appareils › App Remote et appareils.")
                 }
             } else {
                 Section {
                     HStack(spacing: 12) {
                         ProgressView()
-                        Text("Waiting for a device to connect…")
+                        Text("En attente de l'iPhone…")
                             .foregroundStyle(.secondary)
                     }
                 }
                 Section {
-                    guideStep(1, "Open Settings on the device being paired.")
-                    guideStep(2, "Go to Privacy & Security › Developer Mode.")
-                    guideStep(3, "Tap Pair with \(service.hostname).")
-                    guideStep(4, "Enter the code shown by StikDebug or in its notification.")
+                    guideStep(1, "Ouvre Réglages sur l'iPhone.")
+                    guideStep(2, "Va dans Confidentialité et sécurité › Mode développeur.")
+                    guideStep(3, "Touche « Associer à \(service.hostname) ».")
+                    guideStep(4, "Tape le code affiché par ChangeTaLoc ou dans sa notification.")
                 } header: {
-                    Text("On the iPhone or iPad")
+                    Text("Sur l'iPhone")
                 } footer: {
-                    Text("For this device, StikDebug stays active while you open Settings. For another device, keep this screen open to see its code.")
+                    Text("ChangeTaLoc reste active pendant que tu ouvres Réglages : le code s'affiche aussi dans une notification.")
                 }
             }
             cancelSection
@@ -94,8 +88,8 @@ struct OnDevicePairingView: View {
                 HStack(spacing: 12) {
                     ProgressView()
                     Text(service.mode == .appleTV
-                         ? "Pairing with \(service.selectedAppleTVName ?? "Apple TV")…"
-                         : "Confirming the iPhone or iPad pairing…")
+                         ? "Association avec \(service.selectedAppleTVName ?? "l'Apple TV")…"
+                         : "Vérification de l'association…")
                 }
             }
             cancelSection
@@ -104,8 +98,8 @@ struct OnDevicePairingView: View {
             Section {
                 VStack(spacing: 14) {
                     Text(service.mode == .localDevice
-                         ? "Enter this code in Settings on this device"
-                         : "Enter this code on the other device")
+                         ? "Tape ce code dans Réglages sur cet iPhone"
+                         : "Tape ce code sur l'autre appareil")
                         .font(.headline)
                         .multilineTextAlignment(.center)
                     Text(pin)
@@ -122,7 +116,7 @@ struct OnDevicePairingView: View {
 
         case .appleTVPIN:
             Section {
-                TextField("Six-digit code", text: $appleTVPIN)
+                TextField("Code à 6 chiffres", text: $appleTVPIN)
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
                     .multilineTextAlignment(.center)
@@ -130,28 +124,28 @@ struct OnDevicePairingView: View {
                     .onChange(of: appleTVPIN) { _, newValue in
                         appleTVPIN = String(newValue.filter { $0 >= "0" && $0 <= "9" }.prefix(6))
                     }
-                Button("Pair") {
+                Button("Associer") {
                     service.submitAppleTVPIN(appleTVPIN)
                     appleTVPIN = ""
                 }
                 .disabled(appleTVPIN.count != 6)
             } header: {
-                Text("Pair with \(service.selectedAppleTVName ?? "Apple TV")")
+                Text("Associer \(service.selectedAppleTVName ?? "l'Apple TV")")
             } footer: {
-                Text("Enter the six-digit code shown on your Apple TV.")
+                Text("Tape le code à 6 chiffres affiché sur ton Apple TV.")
             }
             cancelSection
 
         case .success(let name, let model, let isLocal):
             Section {
-                Label("Pairing Complete", systemImage: "checkmark.seal.fill")
+                Label("Association réussie", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(.green)
                 if !name.isEmpty || !model.isEmpty {
                     Text([name, model].filter { !$0.isEmpty }.joined(separator: " · "))
                         .foregroundStyle(.secondary)
                 }
                 if isLocal {
-                    Label("Now used by StikDebug", systemImage: "checkmark.circle.fill")
+                    Label("ChangeTaLoc l'utilise maintenant", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 }
             }
@@ -160,23 +154,23 @@ struct OnDevicePairingView: View {
                     Button {
                         showingAppPlacement = true
                     } label: {
-                        Label("Place in Another App", systemImage: "square.and.arrow.down.on.square")
+                        Label("Placer dans une autre app", systemImage: "square.and.arrow.down.on.square")
                     }
                 }
                 if let exportURL = service.exportURL {
                     ShareLink(item: exportURL) {
-                        Label("Export Pairing File", systemImage: "square.and.arrow.up")
+                        Label("Exporter le fichier de jumelage", systemImage: "square.and.arrow.up")
                     }
                 }
             } footer: {
                 Text(isLocal
-                     ? "The pairing file is saved in StikDebug. You can also place it in a supported app or export it."
-                     : "You can place this pairing file in a supported app on the paired device or export it.")
+                     ? "Le fichier de jumelage est enregistré dans ChangeTaLoc. Tu peux revenir à la carte."
+                     : "Tu peux placer ce fichier dans une app compatible de l'autre appareil, ou l'exporter.")
             }
 
         case .failed(let message):
             Section {
-                Label("Pairing Failed", systemImage: "xmark.octagon.fill")
+                Label("L'association a échoué", systemImage: "xmark.octagon.fill")
                     .foregroundStyle(.red)
                 Text(message)
                     .font(.footnote)
@@ -184,7 +178,7 @@ struct OnDevicePairingView: View {
                     .textSelection(.enabled)
             }
             Section {
-                Button("Try Again") {
+                Button("Réessayer") {
                     service.reset()
                 }
             }
@@ -193,7 +187,7 @@ struct OnDevicePairingView: View {
 
     private var cancelSection: some View {
         Section {
-            Button("Cancel", role: .cancel) {
+            Button("Annuler", role: .cancel) {
                 service.cancel()
             }
         }
@@ -229,12 +223,12 @@ private struct PairingFilePlacementView: View {
             Form {
                 Section {
                     if isLoading {
-                        ProgressView("Loading installed apps…")
+                        ProgressView("Chargement des apps…")
                             .frame(maxWidth: .infinity)
                     } else if apps.isEmpty {
                         Text(target == nil
-                             ? "No supported apps were found on this device."
-                             : "No supported apps were found on the paired device.")
+                             ? "Aucune app compatible sur cet iPhone."
+                             : "Aucune app compatible sur l'autre appareil.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(apps) { app in
@@ -252,15 +246,15 @@ private struct PairingFilePlacementView: View {
                         }
                     }
                 } header: {
-                    Text("Choose an App")
+                    Text("Choisis une app")
                 } footer: {
                     Text(target == nil
-                         ? "LocalDevVPN must be enabled. Only apps with known Remote Pairing file destinations are listed. The selected app must allow access to its Documents folder."
-                         : "Keep both devices on the same Wi-Fi network. Apps are read from the paired device. The selected app must allow access to its Documents folder.")
+                         ? "LocalDevVPN doit être activé. Seules les apps compatibles sont listées."
+                         : "Garde les deux appareils sur le même Wi-Fi. Seules les apps compatibles sont listées.")
                 }
                 if let placingApp {
                     Section {
-                        ProgressView("Placing pairing file in \(placingApp.name)…")
+                        ProgressView("Copie du fichier dans \(placingApp.name)…")
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -271,16 +265,16 @@ private struct PairingFilePlacementView: View {
                     }
                 }
             }
-            .navigationTitle("Place Pairing File")
+            .navigationTitle("Placer le fichier")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("OK") { dismiss() }
                         .disabled(placingApp != nil)
                 }
             }
             .confirmationDialog(
-                "Replace the pairing file in \(pendingApp?.name ?? "this app")?",
+                "Remplacer le fichier de jumelage de \(pendingApp?.name ?? "cette app") ?",
                 isPresented: Binding(
                     get: { pendingApp != nil },
                     set: { if !$0 { pendingApp = nil } }
@@ -288,13 +282,13 @@ private struct PairingFilePlacementView: View {
                 titleVisibility: .visible,
                 presenting: pendingApp
             ) { app in
-                Button("Place Pairing File", role: .destructive) {
+                Button("Placer le fichier", role: .destructive) {
                     pendingApp = nil
                     place(in: app)
                 }
-                Button("Cancel", role: .cancel) { pendingApp = nil }
+                Button("Annuler", role: .cancel) { pendingApp = nil }
             } message: { app in
-                Text("Writes Documents/\(app.path), replacing any existing pairing file.")
+                Text("L'ancien fichier de jumelage de cette app sera remplacé.")
             }
         }
         .interactiveDismissDisabled(placingApp != nil)
@@ -324,7 +318,7 @@ private struct PairingFilePlacementView: View {
                     try JITEnableContext.shared.placePairingFile(data, in: app, target: target)
                 }.value
                 isError = false
-                message = "Pairing file placed in \(app.name)."
+                message = "Fichier de jumelage placé dans \(app.name)."
             } catch {
                 isError = true
                 message = error.localizedDescription
