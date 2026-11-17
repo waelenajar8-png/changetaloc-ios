@@ -300,12 +300,12 @@ final class OnDevicePairingService: ObservableObject {
         defer { Darwin.close(listener) }
 
         guard listenerReady(listener, serviceID, txt) else {
-            return .failure("Pairing was cancelled.")
+            return .failure("Association annulée.")
         }
 
         let connection = Darwin.accept(listener, nil, nil)
         guard connection >= 0 else {
-            return .failure(errno == EBADF ? "Pairing was cancelled." : "Failed to accept pairing connection: \(posixMessage())")
+            return .failure(errno == EBADF ? "Association annulée." : "Failed to accept pairing connection: \(posixMessage())")
         }
         defer { Darwin.close(connection) }
         guard let phone = phoneAddress(for: connection), peerConnected(phone.1) else {
@@ -337,7 +337,7 @@ final class OnDevicePairingService: ObservableObject {
             rppairing_peer_device_free(peer)
         }
 
-        guard isActive() else { return .failure("Pairing was cancelled.") }
+        guard isActive() else { return .failure("Association annulée.") }
         if !isLocal {
             let discoveredAddress: Data
             do {
@@ -351,7 +351,7 @@ final class OnDevicePairingService: ObservableObject {
             var verificationFailure = "Failed to confirm the iPhone or iPad pairing."
             var verified = false
             for attempt in 0..<3 {
-                guard isActive() else { return .failure("Pairing was cancelled.") }
+                guard isActive() else { return .failure("Association annulée.") }
                 var verificationPeer: UnsafeMutablePointer<RpPairingPeerDeviceC>?
                 let verificationError = withUnsafePointer(to: &verificationAddress) { pointer in
                     pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
@@ -382,7 +382,7 @@ final class OnDevicePairingService: ObservableObject {
             guard verified else { return .failure(verificationFailure) }
         }
 
-        guard isActive() else { return .failure("Pairing was cancelled.") }
+        guard isActive() else { return .failure("Association annulée.") }
         let name = cString(peer?.pointee.name)
         let model = cString(peer?.pointee.model)
         return savePairingFile(
@@ -459,7 +459,7 @@ final class OnDevicePairingService: ObservableObject {
         if let pairError {
             return .failure(consumePairingError(pairError, fallback: "Apple TV pairing failed"))
         }
-        guard isActive() else { return .failure("Pairing was cancelled.") }
+        guard isActive() else { return .failure("Association annulée.") }
         let name = cString(peer?.pointee.name)
         return savePairingFile(
             pairingFile,
@@ -495,7 +495,7 @@ final class OnDevicePairingService: ObservableObject {
         if let ffiError = fileURL.path.withCString({ rp_pairing_file_write(pairingFile, $0) }) {
             return .failure(consumePairingError(ffiError, fallback: "Failed to save pairing file"))
         }
-        guard isActive() else { return .failure("Pairing was cancelled.") }
+        guard isActive() else { return .failure("Association annulée.") }
         if isLocal {
             do {
                 try PairingFileStore.replace(with: fileURL)
@@ -554,8 +554,8 @@ final class OnDevicePairingService: ObservableObject {
 
         if mode == .localDevice {
             let content = UNMutableNotificationContent()
-            content.title = "StikDebug pairing code"
-            content.body = "Enter \(pin) to finish pairing."
+            content.title = "Code d'association ChangeTaLoc"
+            content.body = "Tape \(pin) dans Réglages pour terminer."
             content.sound = .default
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "stikdebug.pairing.pin", content: content, trigger: nil)
