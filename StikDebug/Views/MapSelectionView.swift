@@ -1649,7 +1649,6 @@ struct LocationSimulationView: View {
         }
         .safeAreaInset(edge: .top) {
             VStack(spacing: 8) {
-            TrialBadge()
             ExpiryBadge()
             if locationConnectionNotice != nil || !isDeviceConnected || showConnectedStatus || tunnel.connectionNotice != nil {
                 Group {

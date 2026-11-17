@@ -191,8 +191,8 @@ private struct BlockedView: View {
 
     private var title: String {
         switch reason {
-        case .noSubscription: return "Démarre ton essai gratuit"
-        case .trialEnded: return "Ton essai est terminé"
+        case .noSubscription: return "Choisis ta formule"
+        case .trialEnded: return "Ton accès est terminé"
         case .paymentPending: return "Paiement en attente"
         case .subscriptionEnded: return "Ton abonnement est terminé"
         case .offline: return "Pas de connexion"
@@ -204,7 +204,7 @@ private struct BlockedView: View {
         case .noSubscription:
             return "Ton compte n'a pas encore d'abonnement. Choisis ta formule sur le site, puis reviens ici."
         case .trialEnded:
-            return "Tu as utilisé tes 30 minutes d'essai. L'accès complet reprend dès le début de ton abonnement."
+            return "Choisis ta formule sur le site pour retrouver l'accès, puis reviens ici."
         case .paymentPending:
             return "Ton dernier paiement n'est pas passé. Mets à jour ton moyen de paiement pour retrouver l'accès."
         case .subscriptionEnded:
@@ -217,7 +217,7 @@ private struct BlockedView: View {
     private var actionTitle: String? {
         switch reason {
         case .noSubscription: return "Voir les formules"
-        case .trialEnded: return "Gérer mon abonnement"
+        case .trialEnded: return "Voir les formules"
         case .paymentPending: return "Mettre à jour le paiement"
         case .subscriptionEnded: return "Reprendre un abonnement"
         case .offline: return nil
@@ -242,7 +242,7 @@ private struct BlockedView: View {
                 Spacer()
                 VStack(spacing: 12) {
                     if let actionTitle {
-                        Link(destination: reason == .trialEnded ? URL(string: "https://changetaloc.com/compte")! : account.buyURL) {
+                        Link(destination: account.buyURL) {
                             PrimaryButtonLabel(title: actionTitle)
                         }
                     }
