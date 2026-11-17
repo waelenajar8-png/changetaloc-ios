@@ -1683,7 +1683,7 @@ struct LocationSimulationView: View {
                 } label: {
                     Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                 }
-                .disabled(isBusy || isRouteRunning)
+                .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
 
                 Button {
                     showCircuits = true
@@ -2503,6 +2503,12 @@ struct LocationSimulationView: View {
                 guard !Task.isCancelled else { return }
                 departureWaitTask = nil
                 scheduledDeparture = nil
+                guard routePlan != nil, !routePlaybackSamples.isEmpty else {
+                    alertTitle = "Départ annulé"
+                    alertMessage = "Le trajet a changé pendant l'attente. Vérifie-le, puis relance le départ."
+                    showAlert = true
+                    return
+                }
                 simulateRoute()
             }
         }
@@ -2588,7 +2594,7 @@ struct LocationSimulationView: View {
                     }
                 }
             }
-            .disabled(isBusy || isRouteRunning)
+            .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
             .opacity(isRouteRunning ? 0.55 : 1)
             .onChange(of: travelModeRaw) { _, _ in
                 refreshRoute()
@@ -2627,7 +2633,7 @@ struct LocationSimulationView: View {
                     .foregroundStyle(.primary)
                     .accessibilityLabel("Saisir la vitesse")
                 }
-                .disabled(isBusy || isRouteRunning)
+                .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
