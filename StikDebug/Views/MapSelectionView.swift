@@ -2256,7 +2256,7 @@ struct LocationSimulationView: View {
     /// Manette : la position avance en direct dans la direction choisie.
     @ViewBuilder
     private var joystickSection: some View {
-        if hasActiveSimulation && !isRouteRunning {
+        if hasActiveSimulation && !isRouteRunning && departureWaitTask == nil {
             VStack(spacing: 10) {
                 Button {
                     if joystickEnabled {
@@ -2479,6 +2479,7 @@ struct LocationSimulationView: View {
             return
         }
         guard pairingExists, let firstCoordinate = routePlaybackSamples.first?.coordinate, !isBusy else { return }
+        stopJoystickLoop()
         runLocationCommand(
             errorTitle: "Départ impossible",
             errorMessage: { code in
