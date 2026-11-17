@@ -96,6 +96,16 @@ private enum TravelMode: String, CaseIterable, Identifiable {
         (self == .walk || self == .bike) ? .walking : .automobile
     }
 
+    /// Train, avion et bateau partent d'une gare, d'un aéroport ou d'un port.
+    var hubKind: TransportHubKind? {
+        switch self {
+        case .train: return .station
+        case .plane: return .airport
+        case .boat: return .port
+        default: return nil
+        }
+    }
+
     /// Vitesse moyenne affichée sous les modes, pour que le client sache à quoi s'attendre.
     func speedHint(customKmh: Double) -> String {
         switch self {
@@ -127,6 +137,354 @@ private enum TravelMode: String, CaseIterable, Identifiable {
 private struct RoutePlaybackSample {
     let coordinate: CLLocationCoordinate2D
     let delayFromPrevious: TimeInterval
+}
+
+// MARK: - Trajet complet : rejoindre la gare, l'aéroport ou le port, voyager, puis finir le trajet.
+
+/// Moyen utilisé pour rejoindre la gare (ou l'aéroport, le port) et pour en repartir.
+private enum AccessMode: String, CaseIterable, Identifiable {
+    case walk, bike, car
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .walk: return "À pied"
+        case .bike: return "Vélo"
+        case .car: return "Voiture"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .walk: return "figure.walk"
+        case .bike: return "bicycle"
+        case .car: return "car.fill"
+        }
+    }
+
+    var transportType: MKDirectionsTransportType {
+        self == .car ? .automobile : .walking
+    }
+
+    /// `nil` : la voiture roule à la vitesse moyenne de l'itinéraire calculé par Plans.
+    var fixedSpeed: CLLocationSpeed? {
+        switch self {
+        case .walk: return 5.0 / 3.6
+        case .bike: return 18.0 / 3.6
+        case .car: return nil
+        }
+    }
+}
+
+private enum TransportHubKind {
+    case station, airport, port
+
+    /// « Passer par la gare », « Rejoindre l'aéroport »…
+    var article: String {
+        switch self {
+        case .station: return "la gare"
+        case .airport: return "l'aéroport"
+        case .port: return "le port"
+        }
+    }
+
+    var noun: String {
+        switch self {
+        case .station: return "gare"
+        case .airport: return "aéroport"
+        case .port: return "port"
+        }
+    }
+
+    var notFound: String {
+        switch self {
+        case .station: return "Aucune gare trouvée"
+        case .airport: return "Aucun aéroport trouvé"
+        case .port: return "Aucun port trouvé"
+        }
+    }
+
+    var nearSame: String {
+        switch self {
+        case .station: return "de la même gare"
+        case .airport: return "du même aéroport"
+        case .port: return "du même port"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .station: return "tram.fill"
+        case .airport: return "airplane"
+        case .port: return "ferry.fill"
+        }
+    }
+
+    var queries: [String] {
+        switch self {
+        case .station: return ["gare", "train station"]
+        case .airport: return ["aéroport", "airport"]
+        case .port: return ["gare maritime", "ferry terminal", "port"]
+        }
+    }
+
+    var categories: [MKPointOfInterestCategory]? {
+        switch self {
+        case .airport: return [.airport]
+        default: return nil
+        }
+    }
+
+    /// Distance maximale à laquelle on cherche le point de passage autour du départ ou de l'arrivée.
+    var searchRadius: CLLocationDistance {
+        switch self {
+        case .station: return 60_000
+        case .airport: return 250_000
+        case .port: return 150_000
+        }
+    }
+
+    /// Écarte les résultats qui ne conviennent pas (gare routière, aérodrome de loisirs…).
+    func accepts(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        let rejected: [String]
+        switch self {
+        case .station: rejected = ["routière", "bus", "parking", "police", "service", "péage", "essence"]
+        case .airport: rejected = ["aérodrome", "aerodrome", "airfield", "héliport", "heliport", "aéroclub", "aeroclub", "parking", "hôtel", "hotel"]
+        case .port: rejected = ["parking", "hôtel", "hotel"]
+        }
+        return !rejected.contains { lowered.contains($0) }
+    }
+
+    /// En dessous de cette distance, on considère que le point est déjà sur place.
+    static let alreadyThereDistance: CLLocationDistance = 400
+}
+
+private struct TransportHub {
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+    let systemImage: String
+}
+
+private struct JourneyLeg: Identifiable {
+    let id = UUID()
+    let title: String
+    let systemImage: String
+    let duration: TimeInterval
+}
+
+private struct JourneyPlan {
+    let displayCoordinates: [CLLocationCoordinate2D]
+    let samples: [RoutePlaybackSample]
+    let distance: CLLocationDistance
+    let duration: TimeInterval
+    let legs: [JourneyLeg]
+    let hubs: [TransportHub]
+    let notes: [String]
+}
+
+private func straightDistance(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationDistance {
+    CLLocation(latitude: a.latitude, longitude: a.longitude)
+        .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+}
+
+/// Cherche la gare, l'aéroport ou le port le plus proche d'un point.
+private func findNearestHub(_ kind: TransportHubKind, near coordinate: CLLocationCoordinate2D) async -> TransportHub? {
+    var best: (hub: TransportHub, distance: CLLocationDistance)?
+    for query in kind.queries {
+        if Task.isCancelled { return nil }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.region = MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: kind.searchRadius * 2,
+            longitudinalMeters: kind.searchRadius * 2
+        )
+        request.resultTypes = .pointOfInterest
+        if let categories = kind.categories {
+            request.pointOfInterestFilter = MKPointOfInterestFilter(including: categories)
+        }
+        guard let response = try? await MKLocalSearch(request: request).start() else { continue }
+        for item in response.mapItems {
+            let hubCoordinate = item.placemark.coordinate
+            guard CLLocationCoordinate2DIsValid(hubCoordinate) else { continue }
+            let name = item.name ?? kind.noun.capitalized
+            guard kind.accepts(name) else { continue }
+            let distance = straightDistance(coordinate, hubCoordinate)
+            guard distance <= kind.searchRadius else { continue }
+            if best == nil || distance < best!.distance {
+                best = (TransportHub(name: name, coordinate: hubCoordinate, systemImage: kind.systemImage), distance)
+            }
+        }
+    }
+    return best?.hub
+}
+
+/// Une étape du trajet : ses points, sa distance et sa vitesse.
+private struct JourneySegment {
+    let coordinates: [CLLocationCoordinate2D]
+    let distance: CLLocationDistance
+    let speed: CLLocationSpeed
+}
+
+/// Étape sur route (à pied, à vélo ou en voiture), calculée par Plans.
+private func roadSegment(
+    from start: CLLocationCoordinate2D,
+    to end: CLLocationCoordinate2D,
+    transportType: MKDirectionsTransportType,
+    fixedSpeed: CLLocationSpeed?
+) async throws -> JourneySegment {
+    func request(_ type: MKDirectionsTransportType) -> MKDirections.Request {
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: start))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: end))
+        request.requestsAlternateRoutes = false
+        request.transportType = type
+        return request
+    }
+
+    let response: MKDirections.Response
+    do {
+        response = try await MKDirections(request: request(transportType)).calculate()
+    } catch {
+        // Plans ne donne pas toujours d'itinéraire piéton sur une longue distance : on suit alors la route.
+        guard transportType == .walking, !Task.isCancelled else { throw error }
+        response = try await MKDirections(request: request(.automobile)).calculate()
+    }
+    guard let route = response.routes.first else {
+        throw NSError(domain: "RouteSimulation", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aucun itinéraire trouvé."])
+    }
+    let coordinates = sampledRouteCoordinates(
+        from: route.polyline.coordinateArray,
+        targetDistance: max(
+            RouteSimulationDefaults.pathSamplingDistance,
+            route.distance / RouteSimulationDefaults.maximumDisplayPointCount
+        )
+    )
+    let averageSpeed = route.expectedTravelTime > 0 ? route.distance / route.expectedTravelTime : 13.4
+    return JourneySegment(coordinates: coordinates, distance: route.distance, speed: fixedSpeed ?? averageSpeed)
+}
+
+/// Étape en ligne droite (bateau) ou en arc de grand cercle (avion).
+private func directSegment(
+    from start: CLLocationCoordinate2D,
+    to end: CLLocationCoordinate2D,
+    greatCircle: Bool,
+    speed: CLLocationSpeed
+) -> JourneySegment {
+    let distance = straightDistance(start, end)
+    let spacing = max(RouteSimulationDefaults.pathSamplingDistance, distance / 2000)
+    let coordinates = greatCircle
+        ? greatCircleCoordinates(from: start, to: end, pointCount: Int(ceil(distance / spacing)))
+        : sampledRouteCoordinates(from: [start, end], targetDistance: spacing)
+    return JourneySegment(coordinates: coordinates, distance: distance, speed: speed)
+}
+
+/// Trajet complet : départ → gare (à pied, à vélo ou en voiture) → train → gare d'arrivée → destination.
+/// Même principe avec l'aéroport pour l'avion et le port pour le bateau.
+private func buildJourneyPlan(
+    from start: CLLocationCoordinate2D,
+    to end: CLLocationCoordinate2D,
+    mainMode: TravelMode,
+    kind: TransportHubKind,
+    access: AccessMode
+) async throws -> JourneyPlan {
+    async let startHubSearch = findNearestHub(kind, near: start)
+    async let endHubSearch = findNearestHub(kind, near: end)
+    let startHub = await startHubSearch
+    let endHub = await endHubSearch
+    try Task.checkCancellation()
+
+    var notes: [String] = []
+    var hubs: [TransportHub] = []
+    var segments: [(leg: (title: String, image: String), segment: JourneySegment)] = []
+
+    // Départ et arrivée autour de la même gare : le train n'a pas de sens, on y va directement.
+    if let startHub, let endHub, straightDistance(startHub.coordinate, endHub.coordinate) < 2_000 {
+        let segment = try await roadSegment(from: start, to: end, transportType: access.transportType, fixedSpeed: access.fixedSpeed)
+        notes.append("Le départ et l'arrivée sont proches \(kind.nearSame) : trajet direct, \(access.title.lowercased()).")
+        segments.append((leg: (title: access.title, image: access.systemImage), segment: segment))
+    } else {
+        let mainStart = startHub?.coordinate ?? start
+        let mainEnd = endHub?.coordinate ?? end
+        if startHub == nil {
+            notes.append("\(kind.notFound) près du départ : le trajet part directement de ton point de départ.")
+        }
+        if endHub == nil {
+            notes.append("\(kind.notFound) près de l'arrivée : le trajet arrive directement à destination.")
+        }
+
+        // 1. Rejoindre la gare, l'aéroport ou le port.
+        if let startHub {
+            hubs.append(startHub)
+            if straightDistance(start, startHub.coordinate) > TransportHubKind.alreadyThereDistance {
+                let segment = try await roadSegment(from: start, to: startHub.coordinate, transportType: access.transportType, fixedSpeed: access.fixedSpeed)
+                segments.append((leg: (title: access.title, image: access.systemImage), segment: segment))
+            }
+        }
+
+        // 2. Le voyage principal.
+        try Task.checkCancellation()
+        let mainSpeed = mainMode.fixedSpeed(customKmh: 50) ?? 13.4
+        let mainSegment: JourneySegment
+        switch kind {
+        case .station:
+            // Le train suit les grands axes terrestres, qui longent le plus souvent les voies ferrées.
+            if let segment = try? await roadSegment(from: mainStart, to: mainEnd, transportType: .automobile, fixedSpeed: mainSpeed) {
+                mainSegment = segment
+            } else {
+                mainSegment = directSegment(from: mainStart, to: mainEnd, greatCircle: false, speed: mainSpeed)
+            }
+        case .airport:
+            mainSegment = directSegment(from: mainStart, to: mainEnd, greatCircle: true, speed: mainSpeed)
+        case .port:
+            mainSegment = directSegment(from: mainStart, to: mainEnd, greatCircle: false, speed: mainSpeed)
+        }
+        segments.append((leg: (title: mainMode.title, image: mainMode.systemImage), segment: mainSegment))
+
+        // 3. Finir le trajet jusqu'à la destination.
+        if let endHub {
+            hubs.append(endHub)
+            if straightDistance(endHub.coordinate, end) > TransportHubKind.alreadyThereDistance {
+                try Task.checkCancellation()
+                let segment = try await roadSegment(from: endHub.coordinate, to: end, transportType: access.transportType, fixedSpeed: access.fixedSpeed)
+                segments.append((leg: (title: access.title, image: access.systemImage), segment: segment))
+            }
+        }
+    }
+
+    // Assemble les étapes en un seul trajet, chacune à sa propre vitesse.
+    var displayCoordinates: [CLLocationCoordinate2D] = []
+    var samples: [RoutePlaybackSample] = []
+    var legs: [JourneyLeg] = []
+    var totalDistance: CLLocationDistance = 0
+    var totalDuration: TimeInterval = 0
+    for (leg, segment) in segments {
+        guard !segment.coordinates.isEmpty else { continue }
+        // On relie chaque étape à la fin de la précédente pour éviter tout saut de position.
+        let path = (displayCoordinates.last.map { [$0] } ?? []) + segment.coordinates
+        let legSamples = buildPlaybackSamples(from: path, speedWays: [], fallbackSpeedMetersPerSecond: segment.speed)
+        samples.append(contentsOf: samples.isEmpty ? legSamples : Array(legSamples.dropFirst()))
+        displayCoordinates.append(contentsOf: segment.coordinates)
+        let duration = segment.distance / max(segment.speed, RouteSimulationDefaults.minimumSpeedMetersPerSecond)
+        legs.append(JourneyLeg(title: leg.title, systemImage: leg.image, duration: duration))
+        totalDistance += segment.distance
+        totalDuration += duration
+    }
+    guard displayCoordinates.count > 1 else {
+        throw NSError(domain: "RouteSimulation", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aucun itinéraire trouvé."])
+    }
+
+    return JourneyPlan(
+        displayCoordinates: displayCoordinates,
+        samples: samples,
+        distance: totalDistance,
+        duration: totalDuration,
+        legs: legs,
+        hubs: hubs,
+        notes: notes
+    )
 }
 
 private struct OpenStreetMapWay {
@@ -890,6 +1248,15 @@ struct LocationSimulationView: View {
     @StateObject private var searchCompleter = LocationSearchCompleter()
     @AppStorage("travelMode") private var travelModeRaw = TravelMode.car.rawValue
     @AppStorage("customSpeedKmh") private var customSpeedKmh = 50.0
+    /// Trajet complet (train, avion, bateau) : passer par la gare, l'aéroport ou le port.
+    @AppStorage("useTransportHubs") private var useTransportHubs = true
+    @AppStorage("accessMode") private var accessModeRaw = AccessMode.car.rawValue
+    private var accessMode: AccessMode {
+        AccessMode(rawValue: accessModeRaw) ?? .car
+    }
+    @State private var journeyLegs: [JourneyLeg] = []
+    @State private var journeyHubs: [TransportHub] = []
+    @State private var journeyNotes: [String] = []
     private var travelMode: TravelMode {
         TravelMode(rawValue: travelModeRaw) ?? .car
     }
@@ -1060,6 +1427,10 @@ struct LocationSimulationView: View {
                         if let routeEndCoordinate {
                             Marker("Arrivée", coordinate: routeEndCoordinate)
                                 .tint(.red)
+                        }
+                        ForEach(Array(journeyHubs.enumerated()), id: \.offset) { _, hub in
+                            Marker(hub.name, systemImage: hub.systemImage, coordinate: hub.coordinate)
+                                .tint(.orange)
                         }
                         if let displayedRouteCoordinate {
                             Marker("Toi", coordinate: displayedRouteCoordinate)
@@ -1330,6 +1701,11 @@ struct LocationSimulationView: View {
 
     private func setRoutePlan(_ plan: RouteSimulationPlan?) {
         routePlan = plan
+        if plan == nil {
+            journeyLegs = []
+            journeyHubs = []
+            journeyNotes = []
+        }
         routePolyline = plan.flatMap { makeRoutePolyline(for: $0.displayCoordinates) }
     }
 
@@ -1593,6 +1969,71 @@ struct LocationSimulationView: View {
         }
     }
 
+    private func legDurationText(_ duration: TimeInterval) -> String {
+        guard duration >= 60 else { return "< 1 min" }
+        return Self.routeDurationFormatter.string(from: duration) ?? ""
+    }
+
+    /// « Voiture 12 min → Train 2 h → À pied 8 min », puis les remarques éventuelles.
+    private var journeySummary: some View {
+        VStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(journeyLegs.enumerated()), id: \.element.id) { index, leg in
+                        if index > 0 {
+                            Image(systemName: "arrow.right")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Label("\(leg.title) \(legDurationText(leg.duration))", systemImage: leg.systemImage)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                }
+            }
+            ForEach(journeyNotes, id: \.self) { note in
+                Label(note, systemImage: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+    }
+
+    /// Réglages du trajet complet : passer par la gare (ou l'aéroport, le port) et comment la rejoindre.
+    @ViewBuilder
+    private var journeyOptions: some View {
+        if let hubKind = travelMode.hubKind {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: $useTransportHubs) {
+                    Label("Passer par \(hubKind.article)", systemImage: hubKind.systemImage)
+                        .font(.footnote.weight(.semibold))
+                }
+                .onChange(of: useTransportHubs) { _, _ in
+                    refreshRoute()
+                }
+                if useTransportHubs {
+                    Text("Pour rejoindre \(hubKind.article) et en repartir :")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Pour rejoindre \(hubKind.article)", selection: $accessModeRaw) {
+                        ForEach(AccessMode.allCases) { mode in
+                            Label(mode.title, systemImage: mode.systemImage).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: accessModeRaw) { _, _ in
+                        refreshRoute()
+                    }
+                }
+            }
+            .disabled(isBusy || isRouteRunning)
+            .opacity(isRouteRunning ? 0.55 : 1)
+        }
+    }
+
     private var routeControls: some View {
         VStack(spacing: 10) {
             Text(routeStatusText)
@@ -1606,6 +2047,10 @@ struct LocationSimulationView: View {
                 Text(routeSummaryText)
                     .font(.footnote.monospaced())
                     .foregroundStyle(.secondary)
+            }
+
+            if !isLoadingRoute && !journeyLegs.isEmpty {
+                journeySummary
             }
 
             routeAttributionLink
@@ -1643,6 +2088,8 @@ struct LocationSimulationView: View {
             .onChange(of: travelModeRaw) { _, _ in
                 refreshRoute()
             }
+
+            journeyOptions
 
             if travelMode == .custom {
                 HStack(spacing: 10) {
@@ -1919,6 +2366,59 @@ struct LocationSimulationView: View {
         routeRequestID = requestID
         let mode = travelMode
         let fixedSpeed = mode.fixedSpeed(customKmh: customSpeedKmh)
+
+        if useTransportHubs, let hubKind = mode.hubKind {
+            isLoadingRoute = true
+            isPrefetchingRouteSpeeds = false
+            let access = accessMode
+            routeLoadTask = Task {
+                do {
+                    let plan = try await buildJourneyPlan(
+                        from: routeStart,
+                        to: routeEnd,
+                        mainMode: mode,
+                        kind: hubKind,
+                        access: access
+                    )
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        guard routeRequestID == requestID else { return }
+                        setRoutePlan(
+                            RouteSimulationPlan(
+                                displayCoordinates: plan.displayCoordinates,
+                                distance: plan.distance,
+                                expectedTravelTime: plan.duration
+                            )
+                        )
+                        routePlaybackSamples = plan.samples
+                        journeyLegs = plan.legs
+                        journeyHubs = plan.hubs
+                        journeyNotes = plan.notes
+                        isLoadingRoute = false
+                        isPrefetchingRouteSpeeds = false
+                        if let routePolyline {
+                            position = .rect(routePolyline.boundingMapRect)
+                        }
+                    }
+                } catch is CancellationError {
+                    await MainActor.run {
+                        guard routeRequestID == requestID else { return }
+                        isLoadingRoute = false
+                        isPrefetchingRouteSpeeds = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard routeRequestID == requestID else { return }
+                        isLoadingRoute = false
+                        isPrefetchingRouteSpeeds = false
+                        alertTitle = "Trajet impossible"
+                        alertMessage = "Le trajet complet n'a pas pu être calculé. Vérifie ta connexion, ou désactive « Passer par \(hubKind.article) » pour un trajet direct."
+                        showAlert = true
+                    }
+                }
+            }
+            return
+        }
 
         if !mode.followsRoads {
             // Bateau et avion : ligne droite entre le départ et l'arrivée.
