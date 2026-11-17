@@ -273,6 +273,75 @@ enum TourCatalog {
                 TourStop(name: "Lincoln Road", latitude: 25.79060, longitude: -80.13860),
             ]
         ),
+        TourCircuit(
+            id: "lyon",
+            title: "Lyon, de Terreaux à Fourvière",
+            summary: "Place des Terreaux, Bellecour, le Vieux Lyon et la basilique de Fourvière.",
+            mode: "walk",
+            stops: [
+                TourStop(name: "Place des Terreaux", latitude: 45.76750, longitude: 4.83360),
+                TourStop(name: "Place Bellecour", latitude: 45.75780, longitude: 4.83200),
+                TourStop(name: "Cathédrale Saint-Jean", latitude: 45.76080, longitude: 4.82700),
+                TourStop(name: "Basilique de Fourvière", latitude: 45.76230, longitude: 4.82250),
+            ]
+        ),
+        TourCircuit(
+            id: "marseille",
+            title: "Marseille, du Vieux-Port à la Bonne Mère",
+            summary: "Le Vieux-Port, le MuCEM puis Notre-Dame de la Garde.",
+            mode: "walk",
+            stops: [
+                TourStop(name: "Vieux-Port", latitude: 43.29510, longitude: 5.37440),
+                TourStop(name: "MuCEM", latitude: 43.29680, longitude: 5.36110),
+                TourStop(name: "Notre-Dame de la Garde", latitude: 43.28400, longitude: 5.37130),
+            ]
+        ),
+        TourCircuit(
+            id: "bordeaux",
+            title: "Bordeaux, le centre historique",
+            summary: "Le miroir d'eau, le Grand Théâtre et la cathédrale Saint-André.",
+            mode: "walk",
+            stops: [
+                TourStop(name: "Miroir d'eau", latitude: 44.84150, longitude: -0.56990),
+                TourStop(name: "Grand Théâtre", latitude: 44.84270, longitude: -0.57430),
+                TourStop(name: "Cathédrale Saint-André", latitude: 44.83790, longitude: -0.57770),
+            ]
+        ),
+        TourCircuit(
+            id: "rome",
+            title: "Rome antique et baroque",
+            summary: "Le Colisée, le Forum, la fontaine de Trevi et le Panthéon.",
+            mode: "walk",
+            stops: [
+                TourStop(name: "Colisée", latitude: 41.89020, longitude: 12.49220),
+                TourStop(name: "Forum romain", latitude: 41.89250, longitude: 12.48530),
+                TourStop(name: "Fontaine de Trevi", latitude: 41.90090, longitude: 12.48330),
+                TourStop(name: "Panthéon", latitude: 41.89860, longitude: 12.47690),
+            ]
+        ),
+        TourCircuit(
+            id: "barcelone",
+            title: "Barcelone, de la Sagrada Família à la Rambla",
+            summary: "Sagrada Família, Casa Batlló, plaça de Catalunya et la Boqueria.",
+            mode: "walk",
+            stops: [
+                TourStop(name: "Sagrada Família", latitude: 41.40360, longitude: 2.17440),
+                TourStop(name: "Casa Batlló", latitude: 41.39160, longitude: 2.16500),
+                TourStop(name: "Plaça de Catalunya", latitude: 41.38700, longitude: 2.17010),
+                TourStop(name: "Marché de la Boqueria", latitude: 41.38200, longitude: 2.17170),
+            ]
+        ),
+        TourCircuit(
+            id: "tokyo",
+            title: "Tokyo, Shibuya → Shinjuku",
+            summary: "Le carrefour de Shibuya, Harajuku puis Shinjuku.",
+            mode: "bike",
+            stops: [
+                TourStop(name: "Carrefour de Shibuya", latitude: 35.65950, longitude: 139.70050),
+                TourStop(name: "Takeshita-dōri, Harajuku", latitude: 35.67140, longitude: 139.70500),
+                TourStop(name: "Gare de Shinjuku", latitude: 35.69060, longitude: 139.70040),
+            ]
+        ),
     ]
 }
 
