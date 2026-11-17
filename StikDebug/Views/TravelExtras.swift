@@ -498,65 +498,103 @@ struct StopSearchSheet: View {
     }
 }
 
-/// Choix de l'heure de départ du trajet.
+/// Choix du jour et de l'heure de départ du trajet (jusqu'à 7 jours à l'avance).
 struct DepartureTimeSheet: View {
     @State private var time: Date
     let onConfirm: (Date) -> Void
     let onDepartNow: () -> Void
 
     init(initial: Date, onConfirm: @escaping (Date) -> Void, onDepartNow: @escaping () -> Void) {
-        _time = State(initialValue: initial)
+        _time = State(initialValue: max(initial, Date().addingTimeInterval(60)))
         self.onConfirm = onConfirm
         self.onDepartNow = onDepartNow
     }
 
+    private var range: ClosedRange<Date> {
+        let now = Date()
+        return now...now.addingTimeInterval(7 * 24 * 3600)
+    }
+
+    /// Raccourcis : dans 1 h, ce soir 20 h, demain 8 h, demain 12 h.
+    private struct Shortcut: Identifiable {
+        let title: String
+        let date: Date
+        var id: String { title }
+    }
+
+    private var shortcuts: [Shortcut] {
+        let cal = Calendar.current
+        let now = Date()
+        var list = [Shortcut(title: "Dans 1 h", date: now.addingTimeInterval(3600))]
+        if let tonight = cal.date(bySettingHour: 20, minute: 0, second: 0, of: now), tonight > now.addingTimeInterval(600) {
+            list.append(Shortcut(title: "Ce soir 20 h", date: tonight))
+        }
+        if let tomorrow = cal.date(byAdding: .day, value: 1, to: now) {
+            if let t8 = cal.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) { list.append(Shortcut(title: "Demain 8 h", date: t8)) }
+            if let t12 = cal.date(bySettingHour: 12, minute: 0, second: 0, of: tomorrow) { list.append(Shortcut(title: "Demain 12 h", date: t12)) }
+        }
+        return list
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Text("Choisis l'heure de départ. Tu es placé au point de départ tout de suite, et le trajet démarre tout seul à l'heure choisie.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+            ScrollView {
+                VStack(spacing: 18) {
+                    Text("Tu es placé au point de départ tout de suite, et le trajet démarre tout seul au moment choisi. Tu peux aller dormir 😴")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
-                DatePicker("Heure de départ", selection: $time, displayedComponents: .hourAndMinute)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(shortcuts) { item in
+                                Button {
+                                    time = item.date
+                                } label: {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .padding(.horizontal, 14)
+                                        .frame(minHeight: 38)
+                                        .background(Color.primary.opacity(0.08), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
 
-                Button {
-                    onConfirm(Self.nextOccurrence(of: time))
-                } label: {
-                    Text("Valider l'heure")
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    DatePicker("Départ", selection: $time, in: range, displayedComponents: [.date, .hourAndMinute])
+                        .datePickerStyle(.graphical)
+                        .environment(\.locale, Locale(identifier: "fr_FR"))
+
+                    Button {
+                        onConfirm(max(time, Date().addingTimeInterval(30)))
+                    } label: {
+                        Text("Partir \(departureDayText(time))")
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    Button("Partir maintenant", action: onDepartNow)
+                        .font(.subheadline.weight(.semibold))
                 }
-
-                Button("Partir maintenant", action: onDepartNow)
-                    .font(.subheadline.weight(.semibold))
+                .padding()
             }
-            .padding()
-            .navigationTitle("Départ programmé")
+            .navigationTitle("Programmer le départ")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
+}
 
-    /// Prochaine fois que l'horloge affichera cette heure : aujourd'hui, ou demain si elle est passée.
-    static func nextOccurrence(of time: Date) -> Date {
-        let calendar = Calendar.current
-        let parts = calendar.dateComponents([.hour, .minute], from: time)
-        let now = Date()
-        var candidate = calendar.date(
-            bySettingHour: parts.hour ?? 0,
-            minute: parts.minute ?? 0,
-            second: 0,
-            of: now
-        ) ?? time
-        if candidate <= now {
-            candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
-        }
-        return candidate
-    }
+/// « aujourd'hui à 14:30 », « demain à 12:00 », « jeu. 20 nov. à 08:00 ».
+func departureDayText(_ date: Date) -> String {
+    let cal = Calendar.current
+    let time = date.formatted(date: .omitted, time: .shortened)
+    if cal.isDateInToday(date) { return "aujourd'hui à \(time)" }
+    if cal.isDateInTomorrow(date) { return "demain à \(time)" }
+    let day = date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(Locale(identifier: "fr_FR")))
+    return "\(day) à \(time)"
 }
 
 /// « 1 h 05 min », « 12 min 30 s » ou « 45 s ».
@@ -565,6 +603,7 @@ func departureCountdownText(until date: Date, now: Date) -> String {
     let hours = seconds / 3600
     let minutes = (seconds % 3600) / 60
     let rest = seconds % 60
+    if hours >= 24 { return "\(hours / 24) j \(hours % 24) h" }
     if hours > 0 { return "\(hours) h \(String(format: "%02d", minutes)) min" }
     if minutes > 0 { return "\(minutes) min \(String(format: "%02d", rest)) s" }
     return "\(rest) s"

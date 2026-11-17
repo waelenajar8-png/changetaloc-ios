@@ -1490,8 +1490,9 @@ struct LocationSimulationView: View {
             "Vitesses de route © contributeurs OpenStreetMap (ODbL)",
             destination: OpenStreetMapSpeedLimitService.copyrightURL
         )
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+        .font(.system(size: 9))
+        .foregroundStyle(.tertiary)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var searchResultsListBase: some View {
@@ -1693,13 +1694,6 @@ struct LocationSimulationView: View {
                 .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
                 .accessibilityLabel("Circuits tout prêts")
 
-                Button {
-                    showCoordinateImporter = true
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .disabled(isBusy || isRouteRunning || isImportingCoordinates)
-                .accessibilityLabel("Importer des coordonnées")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 TextField("Ville, adresse, lieu…", text: $searchText)
@@ -1749,7 +1743,14 @@ struct LocationSimulationView: View {
         .sheet(isPresented: $showRouteSearch) {
             RouteSearchSheet(
                 initialStart: routeStartSelection,
-                initialEnd: routeEndSelection
+                initialEnd: routeEndSelection,
+                onOpenCircuits: {
+                    // Laisse la feuille se fermer avant d'ouvrir la suivante.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showCircuits = true }
+                },
+                onImportFile: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showCoordinateImporter = true }
+                }
             ) { startSelection, endSelection in
                 routeStartSelection = startSelection
                 routeEndSelection = endSelection
@@ -2423,7 +2424,7 @@ struct LocationSimulationView: View {
             VStack(spacing: 8) {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Label(
-                        "Départ à \(scheduledDeparture.formatted(date: .omitted, time: .shortened)) · dans \(departureCountdownText(until: scheduledDeparture, now: context.date))",
+                        "Départ \(departureDayText(scheduledDeparture)) · dans \(departureCountdownText(until: scheduledDeparture, now: context.date))",
                         systemImage: "clock.fill"
                     )
                     .font(.subheadline.weight(.semibold))
@@ -2458,9 +2459,9 @@ struct LocationSimulationView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "clock")
-                    Text(scheduledDeparture.map { "Départ à \($0.formatted(date: .omitted, time: .shortened))" } ?? "Départ : maintenant")
+                    Text(scheduledDeparture.map { "Départ \(departureDayText($0))" } ?? "Départ : maintenant")
                     Spacer()
-                    Text(scheduledDeparture == nil ? "Programmer" : "Modifier")
+                    Text(scheduledDeparture == nil ? "Choisir jour et heure" : "Modifier")
                         .foregroundStyle(.secondary)
                 }
                 .font(.footnote.weight(.semibold))
@@ -2564,8 +2565,6 @@ struct LocationSimulationView: View {
                 journeySummary
             }
 
-            routeAttributionLink
-
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(TravelMode.allCases) { mode in
@@ -2580,10 +2579,10 @@ struct LocationSimulationView: View {
                                 Text(mode.title)
                                     .font(.caption2.weight(.semibold))
                                     .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
                             }
                             .foregroundStyle(selected ? Color.black : Color.primary)
-                            .frame(minWidth: 68, minHeight: 54)
-                            .padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, minHeight: 54)
                             .background(
                                 selected ? Color.accentColor : Color.primary.opacity(0.08),
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -2591,9 +2590,13 @@ struct LocationSimulationView: View {
                         }
                         .buttonStyle(PressableButtonStyle())
                         .accessibilityLabel(mode.title)
+                        // 4 modes et demi visibles : le bout du 5e montre qu'on peut faire défiler.
+                        .containerRelativeFrame(.horizontal, count: 9, span: 2, spacing: 8)
                     }
                 }
+                .scrollTargetLayout()
             }
+            .scrollTargetBehavior(.viewAligned)
             .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
             .opacity(isRouteRunning ? 0.55 : 1)
             .onChange(of: travelModeRaw) { _, _ in
@@ -2689,6 +2692,9 @@ struct LocationSimulationView: View {
                 .disabled(isBusy || isRouteRunning)
                 .opacity(isRouteRunning ? 0.45 : 1)
             }
+
+            // Mention légale obligatoire (ODbL), volontairement discrète.
+            routeAttributionLink
         }
     }
 
@@ -3181,6 +3187,8 @@ private struct RouteSearchSheet: View {
     let initialStart: RouteSearchSelection?
     let initialEnd: RouteSearchSelection?
     let onApply: (RouteSearchSelection, RouteSearchSelection) -> Void
+    var onOpenCircuits: (() -> Void)? = nil
+    var onImportFile: (() -> Void)? = nil
 
     @StateObject private var startCompleter = LocationSearchCompleter()
     @StateObject private var endCompleter = LocationSearchCompleter()
@@ -3197,10 +3205,14 @@ private struct RouteSearchSheet: View {
     init(
         initialStart: RouteSearchSelection?,
         initialEnd: RouteSearchSelection?,
+        onOpenCircuits: (() -> Void)? = nil,
+        onImportFile: (() -> Void)? = nil,
         onApply: @escaping (RouteSearchSelection, RouteSearchSelection) -> Void
     ) {
         self.initialStart = initialStart
         self.initialEnd = initialEnd
+        self.onOpenCircuits = onOpenCircuits
+        self.onImportFile = onImportFile
         self.onApply = onApply
         _startQuery = State(initialValue: initialStart?.title ?? "")
         _endQuery = State(initialValue: initialEnd?.title ?? "")
@@ -3288,9 +3300,10 @@ private struct RouteSearchSheet: View {
                     }
                     .frame(maxHeight: 260)
                 } else {
-                    Text("Tape un départ et une arrivée, puis touche « Utiliser ».")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    ScrollView {
+                        possibilitiesCard
+                    }
+                    .scrollIndicators(.hidden)
                 }
 
                 Spacer(minLength: 0)
@@ -3320,6 +3333,103 @@ private struct RouteSearchSheet: View {
                 focusedField = .start
             } else if endSelection == nil {
                 focusedField = .end
+            }
+        }
+    }
+
+    /// Ce qu'on peut faire avec un trajet : affiché tant qu'aucune suggestion n'est à l'écran.
+    private var possibilitiesCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Une fois ton trajet créé, tu peux :")
+                .font(.subheadline.weight(.semibold))
+
+            possibilityRow(
+                icon: "car.fill",
+                tint: .yellow,
+                title: "Choisir comment tu te déplaces",
+                detail: "À pied, vélo, moto, voiture, train, bateau, avion ou à la vitesse que tu veux."
+            )
+            possibilityRow(
+                icon: "flag.fill",
+                tint: .orange,
+                title: "Ajouter des étapes",
+                detail: "Passe chez un pote ou au McDo avant d'arriver."
+            )
+            possibilityRow(
+                icon: "clock.fill",
+                tint: .blue,
+                title: "Programmer le départ",
+                detail: "Demain à 12 h, cette nuit… Le trajet démarre tout seul, même si tu dors."
+            )
+            possibilityRow(
+                icon: "figure.walk.motion",
+                tint: .green,
+                title: "Bouger de façon naturelle",
+                detail: "Ta loc avance à la vitesse réelle des routes, comme un vrai déplacement."
+            )
+
+            if let onOpenCircuits {
+                Button {
+                    dismiss()
+                    onOpenCircuits()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "map.fill")
+                            .font(.title3)
+                            .foregroundStyle(.black)
+                            .frame(width: 40, height: 40)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Pas d'idée ? Prends un circuit tout prêt")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Paris, Lyon, Marseille, Rome, Tokyo…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(12)
+                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let onImportFile {
+                Button {
+                    dismiss()
+                    onImportFile()
+                } label: {
+                    Label("Importer un fichier GPX ou KML (avancé)", systemImage: "doc.badge.plus")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                Text("Seulement si tu as déjà un fichier de trajet (exporté de Strava, Google Earth…).")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(16)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func possibilityRow(icon: String, tint: Color, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 32, height: 32)
+                .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

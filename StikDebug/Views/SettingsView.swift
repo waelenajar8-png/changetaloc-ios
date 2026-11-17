@@ -66,6 +66,32 @@ struct SettingsView: View {
                     .padding(.vertical, 8)
                 }
 
+                Section("Mon compte") {
+                    if let email = AccountStore.shared.email {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 36))
+                                .foregroundStyle(Color.accentColor)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Connecté")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(email)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    Link(destination: URL(string: "https://changetaloc.com/compte")!) {
+                        Label("Gérer mon abonnement", systemImage: "creditcard")
+                    }
+                    Button(role: .destructive, action: AccountStore.shared.signOut) {
+                        Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+
                 Section("Connexion à l'iPhone") {
                     NavigationLink {
                         OnDevicePairingView(service: onDevicePairing)
@@ -157,18 +183,6 @@ struct SettingsView: View {
                         }
                     } else if let result = ddiResultMessage {
                         Text(result.text).font(.caption).foregroundStyle(result.isError ? .red : .green)
-                    }
-                }
-
-                Section("Mon compte") {
-                    if let email = AccountStore.shared.email {
-                        LabeledContent("Connecté", value: email)
-                    }
-                    Link(destination: URL(string: "https://changetaloc.com/compte")!) {
-                        Label("Gérer mon abonnement", systemImage: "creditcard")
-                    }
-                    Button(role: .destructive, action: AccountStore.shared.signOut) {
-                        Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
                     }
                 }
 
