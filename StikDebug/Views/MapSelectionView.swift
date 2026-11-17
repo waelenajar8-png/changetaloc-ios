@@ -470,6 +470,9 @@ private func buildJourneyPlans(
         if endHub == nil {
             notes.append("\(kind.notFound) près de l'arrivée : le trajet arrive directement à destination.")
         }
+        if kind == .station {
+            notes.append("Entre les deux gares, ta position suit les grands axes, au plus près des voies ferrées, à la vitesse d'un train.")
+        }
         let hubs = [startHub, endHub].compactMap { $0 }
         let finalNotes = notes
         let needsAccess = startHub.map { straightDistance(start, $0.coordinate) > TransportHubKind.alreadyThereDistance } ?? false
