@@ -66,7 +66,7 @@ struct SettingsView: View {
                     .padding(.vertical, 8)
                 }
 
-                Section("Mon compte") {
+                Section {
                     if let email = AccountStore.shared.email {
                         HStack(spacing: 12) {
                             Image(systemName: "person.crop.circle.fill")
@@ -84,12 +84,18 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 4)
                     }
+                    LabeledContent {
+                        Text(AccountStore.shared.status == "active" ? "Actif" : "—")
+                            .foregroundStyle(AccountStore.shared.status == "active" ? Color.green : Color.secondary)
+                    } label: {
+                        Label("Abonnement", systemImage: "checkmark.seal")
+                    }
                     if let expiry = AppExpiry.expirationText {
                         LabeledContent {
                             Text(expiry)
                                 .foregroundStyle((AppExpiry.daysLeft() ?? 7) <= 2 ? Color.orange : Color.secondary)
                         } label: {
-                            Label("App valable jusqu'au", systemImage: "calendar.badge.clock")
+                            Label("À renouveler avant le", systemImage: "arrow.triangle.2.circlepath")
                         }
                     }
                     Link(destination: URL(string: "https://changetaloc.com/compte")!) {
@@ -98,9 +104,13 @@ struct SettingsView: View {
                     Button(role: .destructive, action: AccountStore.shared.signOut) {
                         Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
                     }
+                } header: {
+                    Text("Mon compte")
+                } footer: {
+                    Text("Cette date n'est pas la fin de ton abonnement. Apple demande juste de renouveler l'app chaque semaine : branche ton iPhone et clique sur « Mettre à jour ou renouveler » dans l'assistant (1 min, inclus dans ton abonnement).")
                 }
 
-                Section("Connexion à l'iPhone") {
+                Section {
                     NavigationLink {
                         OnDevicePairingView(service: onDevicePairing)
                     } label: {
@@ -130,6 +140,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(pairingImportMessage.isError ? .red : .green)
                     }
+                } header: {
+                    Text("Connexion à l'iPhone (avancé)")
+                } footer: {
+                    Text("Tu n'as rien à faire ici : l'assistant s'en occupe à l'installation. À utiliser seulement si le support te le demande.")
                 }
 
                 Section {

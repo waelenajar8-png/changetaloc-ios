@@ -31,7 +31,7 @@ private let welcomePages: [WelcomePage] = [
         id: 2,
         systemImage: "arrow.uturn.backward.circle.fill",
         title: "Reviens à ta vraie position",
-        text: "Quand tu veux, touche « Retour à ma vraie position ». Pense à rebrancher ton iPhone à l'ordinateur une fois par semaine."
+        text: "Quand tu veux, touche « Retour à ma vraie position ». Une fois par semaine, l'app te rappelle de la renouveler : branche ton iPhone et clique sur « Mettre à jour ou renouveler » (1 min)."
     ),
 ]
 

@@ -144,8 +144,8 @@ private struct LoginView: View {
                     .opacity(canSubmit || account.isWorking ? 1 : 0.5)
 
                     VStack(spacing: 14) {
-                        Link("Pas encore de compte ? Créer un compte", destination: AccountStore.signUpURL)
-                        Link("Mot de passe oublié", destination: AccountStore.signUpURL)
+                        Link("Pas encore de compte ? Créer un compte", destination: URL(string: "https://changetaloc.com/connexion?mode=signup")!)
+                        Link("Mot de passe oublié", destination: URL(string: "https://changetaloc.com/connexion?mode=forgot")!)
                     }
                     .font(.footnote)
                     .tint(brandYellow)

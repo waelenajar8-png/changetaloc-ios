@@ -551,7 +551,7 @@ struct DepartureTimeSheet: View {
                         .multilineTextAlignment(.center)
 
                     if let expiry = AppExpiry.expirationText {
-                        Text("Ton app est valable jusqu'au \(expiry) : choisis un départ avant.")
+                        Text("Pense à renouveler l'app avant le \(expiry) (1 min avec l'assistant) : choisis un départ avant cette date.")
                             .font(.caption)
                             .foregroundStyle(.orange)
                             .multilineTextAlignment(.center)
