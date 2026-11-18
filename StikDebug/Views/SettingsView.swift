@@ -95,7 +95,7 @@ struct SettingsView: View {
                             Text(expiry)
                                 .foregroundStyle((AppExpiry.daysLeft() ?? 7) <= 2 ? Color.orange : Color.secondary)
                         } label: {
-                            Label("À renouveler avant le", systemImage: "arrow.triangle.2.circlepath")
+                            Label("Signature Apple jusqu'au", systemImage: "signature")
                         }
                     }
                     Link(destination: URL(string: "https://changetaloc.com/compte")!) {
@@ -107,7 +107,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Mon compte")
                 } footer: {
-                    Text("Cette date n'est pas la fin de ton abonnement. Apple demande juste de renouveler l'app chaque semaine : branche ton iPhone et clique sur « Mettre à jour ou renouveler » dans l'assistant (1 min, inclus dans ton abonnement).")
+                    Text("Ce n'est pas la fin de ton abonnement. ChangeTaLoc n'est pas sur l'App Store : Apple l'autorise sur ton iPhone avec une signature valable 7 jours. Avant cette date, branche ton iPhone et clique sur « Mettre à jour ou renouveler » dans l'assistant : la signature repart pour 7 jours (1 min, inclus).")
                 }
 
                 Section {

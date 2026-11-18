@@ -31,7 +31,13 @@ private let welcomePages: [WelcomePage] = [
         id: 2,
         systemImage: "arrow.uturn.backward.circle.fill",
         title: "Reviens à ta vraie position",
-        text: "Quand tu veux, touche « Retour à ma vraie position ». Une fois par semaine, l'app te rappelle de la renouveler : branche ton iPhone et clique sur « Mettre à jour ou renouveler » (1 min)."
+        text: "Quand tu veux, touche « Retour à ma vraie position »."
+    ),
+    WelcomePage(
+        id: 3,
+        systemImage: "signature",
+        title: "1 minute par semaine",
+        text: "ChangeTaLoc n'est pas sur l'App Store : Apple l'autorise sur ton iPhone avec une signature valable 7 jours. L'app te prévient avant : tu branches ton iPhone, tu cliques sur « Mettre à jour ou renouveler » dans l'assistant, et c'est reparti. Ton abonnement n'est pas concerné."
     ),
 ]
 

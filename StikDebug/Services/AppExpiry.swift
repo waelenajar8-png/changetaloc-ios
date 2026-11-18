@@ -38,15 +38,15 @@ enum AppExpiry {
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let reminders: [(String, TimeInterval, String)] = [
-                (ids[0], 24 * 3600, "Petit renouvellement d'1 minute"),
-                (ids[1], 2 * 3600, "Pense à renouveler ChangeTaLoc"),
+                (ids[0], 24 * 3600, "Ta signature Apple expire demain"),
+                (ids[1], 2 * 3600, "Ta signature Apple expire dans 2 h"),
             ]
             for (id, before, title) in reminders {
                 let fireDate = expirationDate.addingTimeInterval(-before)
                 guard fireDate > Date() else { continue }
                 let content = UNMutableNotificationContent()
                 content.title = title
-                content.body = "Branche ton iPhone à ton ordi, ouvre l'assistant ChangeTaLoc et clique sur « Mettre à jour ou renouveler ». C'est tout : tes réglages sont gardés."
+                content.body = "Pour que ChangeTaLoc continue de s'ouvrir : branche ton iPhone à ton ordi, ouvre l'assistant et clique sur « Mettre à jour ou renouveler ». 1 minute, tes réglages sont gardés."
                 content.sound = .default
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fireDate.timeIntervalSinceNow, repeats: false)
                 center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
@@ -62,9 +62,9 @@ struct ExpiryBadge: View {
 
     private var title: String {
         switch AppExpiry.daysLeft() ?? 0 {
-        case 0: return "Petit renouvellement à faire aujourd'hui"
-        case 1: return "Petit renouvellement à faire d'ici demain"
-        default: return "Petit renouvellement à faire d'ici 2 jours"
+        case 0: return "Signature Apple à renouveler aujourd'hui"
+        case 1: return "Signature Apple à renouveler d'ici demain"
+        default: return "Signature Apple à renouveler d'ici 2 jours"
         }
     }
 
@@ -89,10 +89,14 @@ struct ExpiryBadge: View {
                     }
                     if expanded {
                         VStack(alignment: .leading, spacing: 6) {
+                            Text("ChangeTaLoc n'est pas sur l'App Store : Apple l'autorise sur ton iPhone avec une signature valable 7 jours. Pour la renouveler :")
+                                .font(.caption)
+                                .opacity(0.8)
+                                .fixedSize(horizontal: false, vertical: true)
                             step("1", "Branche ton iPhone à ton ordinateur.")
                             step("2", "Ouvre l'assistant ChangeTaLoc.")
                             step("3", "Clique sur « Mettre à jour ou renouveler ».")
-                            Text("C'est tout. Tes réglages et tes favoris sont gardés, et c'est reparti pour 7 jours.")
+                            Text("C'est tout. Tes réglages et tes favoris sont gardés, et c'est reparti pour 7 jours. Ton abonnement n'est pas concerné.")
                                 .font(.caption)
                                 .opacity(0.8)
                                 .fixedSize(horizontal: false, vertical: true)
