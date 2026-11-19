@@ -95,20 +95,32 @@ private struct LoginView: View {
     @ObservedObject private var account = AccountStore.shared
     @State private var email = ""
     @State private var password = ""
+    @State private var code = ""
+    /// Par défaut : connexion par code reçu par e-mail (pas de mot de passe à créer). Le mot de passe reste possible.
+    @State private var withPassword = false
+    @State private var codeSent = false
     @State private var errorMessage: String?
+    @State private var infoMessage: String?
     @FocusState private var focus: Field?
 
-    private enum Field { case email, password }
+    private enum Field { case email, password, code }
 
     private var canSubmit: Bool {
-        email.contains("@") && !password.isEmpty && !account.isWorking
+        guard email.contains("@"), !account.isWorking else { return false }
+        if withPassword { return !password.isEmpty }
+        return codeSent ? code.filter(\.isNumber).count >= 6 : true
+    }
+
+    private var buttonTitle: String {
+        if withPassword { return "Se connecter" }
+        return codeSent ? "Valider le code" : "Recevoir mon code"
     }
 
     var body: some View {
         GateBackground {
             ScrollView {
                 VStack(spacing: 28) {
-                    BrandHeader(subtitle: "Connecte-toi avec ton compte ChangeTaLoc.")
+                    BrandHeader(subtitle: withPassword ? "Connecte-toi avec ton compte ChangeTaLoc." : "Entre l'e-mail utilisé au paiement : on t'envoie un code.")
                         .padding(.top, 56)
 
                     VStack(spacing: 12) {
@@ -117,18 +129,34 @@ private struct LoginView: View {
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .submitLabel(.next)
+                            .submitLabel(withPassword ? .next : .go)
                             .focused($focus, equals: .email)
-                            .onSubmit { focus = .password }
+                            .disabled(codeSent && !withPassword)
+                            .onSubmit { if withPassword { focus = .password } else { submit() } }
                             .gateField()
 
-                        SecureField("", text: $password, prompt: Text("Mot de passe").foregroundStyle(.white.opacity(0.4)))
-                            .textContentType(.password)
-                            .submitLabel(.go)
-                            .focused($focus, equals: .password)
-                            .onSubmit(submit)
-                            .gateField()
+                        if withPassword {
+                            SecureField("", text: $password, prompt: Text("Mot de passe").foregroundStyle(.white.opacity(0.4)))
+                                .textContentType(.password)
+                                .submitLabel(.go)
+                                .focused($focus, equals: .password)
+                                .onSubmit(submit)
+                                .gateField()
+                        } else if codeSent {
+                            TextField("", text: $code, prompt: Text("Code reçu par e-mail").foregroundStyle(.white.opacity(0.4)))
+                                .textContentType(.oneTimeCode)
+                                .keyboardType(.numberPad)
+                                .focused($focus, equals: .code)
+                                .font(.title3.monospacedDigit())
+                                .gateField()
+                        }
 
+                        if let infoMessage, errorMessage == nil {
+                            Text(infoMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.75))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.footnote)
@@ -138,14 +166,31 @@ private struct LoginView: View {
                     }
 
                     Button(action: submit) {
-                        PrimaryButtonLabel(title: "Se connecter", loading: account.isWorking)
+                        PrimaryButtonLabel(title: buttonTitle, loading: account.isWorking)
                     }
                     .disabled(!canSubmit)
                     .opacity(canSubmit || account.isWorking ? 1 : 0.5)
 
                     VStack(spacing: 14) {
-                        Link("Pas encore de compte ? Créer un compte", destination: URL(string: "https://changetaloc.com/connexion?mode=signup")!)
-                        Link("Mot de passe oublié", destination: URL(string: "https://changetaloc.com/connexion?mode=forgot")!)
+                        if !withPassword && codeSent {
+                            Button("Changer d'e-mail ou renvoyer un code") {
+                                codeSent = false
+                                code = ""
+                                infoMessage = nil
+                                errorMessage = nil
+                            }
+                        }
+                        Button(withPassword ? "Me connecter avec un code par e-mail" : "J'ai un mot de passe") {
+                            withPassword.toggle()
+                            codeSent = false
+                            code = ""
+                            errorMessage = nil
+                            infoMessage = nil
+                        }
+                        if withPassword {
+                            Link("Mot de passe oublié", destination: URL(string: "https://changetaloc.com/connexion?mode=forgot")!)
+                        }
+                        Link("Pas encore abonné ? Essai gratuit 24 h", destination: URL(string: "https://changetaloc.com/#tarifs")!)
                     }
                     .font(.footnote)
                     .tint(brandYellow)
@@ -162,13 +207,38 @@ private struct LoginView: View {
         guard canSubmit else { return }
         errorMessage = nil
         focus = nil
-        let mail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pass = password
-        Task {
-            let message = await account.signIn(email: mail, password: pass)
-            await MainActor.run {
-                errorMessage = message
-                if message == nil { password = "" }
+        let mail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if withPassword {
+            let pass = password
+            Task {
+                let message = await account.signIn(email: mail, password: pass)
+                await MainActor.run {
+                    errorMessage = message
+                    if message == nil { password = "" }
+                }
+            }
+        } else if !codeSent {
+            Task {
+                let message = await account.requestCode(email: mail)
+                await MainActor.run {
+                    // Un code déjà envoyé (par exemple juste après le paiement) reste valable : on passe quand même à la saisie.
+                    if message == nil || message?.contains("Attends une minute") == true {
+                        codeSent = true
+                        infoMessage = "Code envoyé à \(mail). Ouvre l'e-mail « Connexion à ChangeTaLoc » et tape le code ici. Pense aux spams."
+                        focus = .code
+                    } else {
+                        errorMessage = message
+                    }
+                }
+            }
+        } else {
+            let typed = code.filter(\.isNumber)
+            Task {
+                let message = await account.signIn(email: mail, code: typed)
+                await MainActor.run {
+                    errorMessage = message
+                    if message == nil { code = "" }
+                }
             }
         }
     }

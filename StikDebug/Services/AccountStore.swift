@@ -152,6 +152,44 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /// Connexion sans mot de passe : envoie un code à l'e-mail du compte. Renvoie un message d'erreur, ou nil si c'est parti.
+    func requestCode(email: String) async -> String? {
+        await MainActor.run { isWorking = true }
+        defer { Task { @MainActor in self.isWorking = false } }
+        do {
+            _ = try await post(path: "/api/app/code", body: ["email": email], token: nil)
+            return nil
+        } catch RequestError.server(let message) {
+            return message ?? "Service indisponible. Réessaie dans un instant."
+        } catch {
+            return "Pas de connexion à Internet."
+        }
+    }
+
+    /// Valide le code reçu par e-mail et ouvre la session.
+    func signIn(email: String, code: String) async -> String? {
+        await MainActor.run { isWorking = true }
+        defer { Task { @MainActor in self.isWorking = false } }
+        do {
+            let json = try await post(path: "/api/app/code", body: ["email": email, "code": code], token: nil)
+            guard let newSession = Self.session(from: json) else { return "Réponse inattendue du serveur." }
+            await MainActor.run {
+                self.session = newSession
+                self.saveSession(newSession)
+                self.email = newSession.email
+                self.state = .loading
+            }
+            await check()
+            return nil
+        } catch RequestError.unauthorized {
+            return "Code incorrect ou expiré."
+        } catch RequestError.server(let message) {
+            return message ?? "Service indisponible. Réessaie dans un instant."
+        } catch {
+            return "Pas de connexion à Internet."
+        }
+    }
+
     func signOut() {
         stopSimulation()
         session = nil
