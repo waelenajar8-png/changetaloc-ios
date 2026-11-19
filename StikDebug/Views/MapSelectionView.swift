@@ -3878,7 +3878,7 @@ private struct UpgradeSheet: View {
                             .frame(maxWidth: .infinity, minHeight: 50)
                             .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    Text("Ton essai s'arrête et le paiement démarre aujourd'hui : rien n'est prélevé deux fois. Sans engagement, résiliable à tout moment.")
+                    Text("Ton essai s'arrête et le paiement démarre aujourd'hui : rien n'est prélevé deux fois. Sans engagement : pas convaincu, résilie depuis ton compte avant la fin des 24 h et tu ne paies rien.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

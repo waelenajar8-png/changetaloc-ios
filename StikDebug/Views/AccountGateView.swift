@@ -204,7 +204,7 @@ private struct BlockedView: View {
         case .noSubscription:
             return "Ton compte n'a pas encore d'abonnement. Choisis ta formule sur le site, puis reviens ici."
         case .trialEnded:
-            return "Tes 30 minutes d'essai sont écoulées. Passe à l'abonnement maintenant pour tout débloquer tout de suite (trajets, manette, circuits…) sans attendre la fin de l'essai, puis reviens ici."
+            return "Ton temps d'essai est écoulé. Passe à l'abonnement maintenant pour tout débloquer tout de suite (trajets, manette, circuits…), puis reviens ici. Pas convaincu ? Résilie depuis ton compte avant la fin des 24 h : tu ne paies rien."
         case .paymentPending:
             return "Ton dernier paiement n'est pas passé. Mets à jour ton moyen de paiement pour retrouver l'accès."
         case .subscriptionEnded:
