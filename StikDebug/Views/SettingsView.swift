@@ -15,6 +15,7 @@ private enum SettingsLinks {
 struct SettingsView: View {
     @AppStorage("microMovements") private var microMovements = false
     @AppStorage("autoReturnMinutes") private var autoReturnMinutes = 0
+    @ObservedObject private var account = AccountStore.shared
     @StateObject private var onDevicePairing = OnDevicePairingService.shared
     @AppStorage(UserDefaults.Keys.txmOverride) private var overrideTXMDetection = false
     @AppStorage(UserDefaults.Keys.confirmExternalJITRequests) private var confirmExternalJITRequests = true
@@ -175,8 +176,9 @@ struct SettingsView: View {
 
                 Section {
                     Toggle(isOn: $microMovements) {
-                        Label("Micro-mouvements", systemImage: "dot.radiowaves.left.and.right")
+                        Label("Micro-mouvements", systemImage: account.status == "trialing" ? "lock.fill" : "dot.radiowaves.left.and.right")
                     }
+                    .disabled(account.status == "trialing")
                     Picker(selection: $autoReturnMinutes) {
                         Text("Jamais").tag(0)
                         Text("15 minutes").tag(15)
@@ -186,12 +188,15 @@ struct SettingsView: View {
                         Text("4 heures").tag(240)
                         Text("8 heures").tag(480)
                     } label: {
-                        Label("Retour automatique", systemImage: "timer")
+                        Label("Retour automatique", systemImage: account.status == "trialing" ? "lock.fill" : "timer")
                     }
+                    .disabled(account.status == "trialing")
                 } header: {
                     Text("Réalisme")
                 } footer: {
-                    Text("Micro-mouvements : ta position bouge de quelques mètres, comme un vrai téléphone. Retour automatique : ta vraie position revient seule après la durée choisie.")
+                    Text(account.status == "trialing"
+                         ? "Réservé à l'abonnement : ton essai gratuit comprend les bases. Abonne-toi depuis ton compte pour débloquer les micro-mouvements et le retour automatique."
+                         : "Micro-mouvements : ta position bouge de quelques mètres, comme un vrai téléphone. Retour automatique : ta vraie position revient seule après la durée choisie.")
                 }
 
                 Section("Dépannage") {

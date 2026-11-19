@@ -1322,6 +1322,21 @@ private struct PressableButtonStyle: ButtonStyle {
 
 struct LocationSimulationView: View {
     @ObservedObject private var tunnel = TunnelManager.shared
+    /// Essai gratuit : seules les bases sont ouvertes (téléportation, favoris, retour à la vraie position).
+    @ObservedObject private var account = AccountStore.shared
+    private var isTrial: Bool { account.status == "trialing" }
+    @State private var lockedFeature: String?
+    private var showUpgrade: Binding<Bool> {
+        Binding(get: { lockedFeature != nil }, set: { if !$0 { lockedFeature = nil } })
+    }
+    /// Lance une fonction réservée à l'abonnement, ou propose de tout débloquer pendant l'essai.
+    private func premium(_ feature: String, _ action: () -> Void) {
+        if isTrial {
+            lockedFeature = feature
+        } else {
+            action()
+        }
+    }
     @State private var showConnectedStatus = true
     @State private var locationConnectionNotice: String?
     @State private var connectionErrorMessage: String?
@@ -1694,16 +1709,16 @@ struct LocationSimulationView: View {
                 }
 
                 Button {
-                    showRouteSearch = true
+                    premium("Les trajets") { showRouteSearch = true }
                 } label: {
-                    toolbarLabel("point.topleft.down.curvedto.point.bottomright.up", "Trajet")
+                    toolbarLabel(isTrial ? "lock.fill" : "point.topleft.down.curvedto.point.bottomright.up", "Trajet")
                 }
                 .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
 
                 Button {
-                    showCircuits = true
+                    premium("Les circuits tout prêts") { showCircuits = true }
                 } label: {
-                    toolbarLabel("map", "Circuits")
+                    toolbarLabel(isTrial ? "lock.fill" : "map", "Circuits")
                 }
                 .disabled(isBusy || isRouteRunning || departureWaitTask != nil)
                 .accessibilityLabel("Circuits tout prêts")
@@ -1741,6 +1756,12 @@ struct LocationSimulationView: View {
             Button("Annuler", role: .cancel) { newBookmarkName = "" }
         } message: {
             Text("Donne un nom à ce lieu.")
+        }
+        .sheet(isPresented: showUpgrade) {
+            UpgradeSheet(feature: lockedFeature ?? "Cette fonction", buyURL: account.buyURL) {
+                lockedFeature = nil
+            }
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showBookmarks) {
             BookmarksView(bookmarks: $bookmarks) { bookmark in
@@ -2291,11 +2312,13 @@ struct LocationSimulationView: View {
                     if joystickEnabled {
                         stopJoystickLoop()
                     } else {
-                        joystickEnabled = true
-                        startJoystickLoop()
+                        premium("La manette") {
+                            joystickEnabled = true
+                            startJoystickLoop()
+                        }
                     }
                 } label: {
-                    Label(joystickEnabled ? "Fermer la manette" : "Manette : avancer en direct", systemImage: "gamecontroller.fill")
+                    Label(joystickEnabled ? "Fermer la manette" : "Manette : avancer en direct", systemImage: isTrial ? "lock.fill" : "gamecontroller.fill")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -2836,7 +2859,7 @@ struct LocationSimulationView: View {
         simulatedCoordinate = coordinate
         LocationSimulationSession.shared.startResending(at: coordinate) {
             // Micro-mouvements : la position bouge de quelques mètres, comme un vrai téléphone posé.
-            let target = UserDefaults.standard.bool(forKey: "microMovements")
+            let target = UserDefaults.standard.bool(forKey: "microMovements") && AccountStore.shared.status != "trialing"
                 ? jitteredCoordinate(around: coordinate)
                 : coordinate
             LocationSimulationCommandQueue.shared.async {
@@ -2862,7 +2885,7 @@ struct LocationSimulationView: View {
         autoReturnTask?.cancel()
         autoReturnTask = nil
         let minutes = UserDefaults.standard.integer(forKey: "autoReturnMinutes")
-        guard minutes > 0 else { return }
+        guard minutes > 0, AccountStore.shared.status != "trialing" else { return }
         autoReturnTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
             guard !Task.isCancelled else { return }
@@ -3809,6 +3832,61 @@ struct BookmarksView: View {
                         }
                     }
                     .onDelete(perform: onDelete)
+                }
+            }
+        }
+    }
+}
+
+
+/// Pendant l'essai : explique ce que l'abonnement débloque et ouvre le paiement immédiat sur le site.
+private struct UpgradeSheet: View {
+    let feature: String
+    let buyURL: URL
+    let onClose: () -> Void
+
+    private let unlocked: [(String, String)] = [
+        ("point.topleft.down.curvedto.point.bottomright.up", "Trajets à pied, à vélo, en moto ou en voiture"),
+        ("gamecontroller.fill", "Manette pour avancer en direct"),
+        ("airplane", "Train, avion et bateau, de porte à porte"),
+        ("map", "Circuits tout prêts"),
+        ("mappin.and.ellipse", "Étapes et départ programmé"),
+        ("dot.radiowaves.left.and.right", "Micro-mouvements et retour automatique"),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Image(systemName: "lock.open.fill")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                    Text("\(feature) : avec l'abonnement")
+                        .font(.title2.weight(.bold))
+                    Text("Ton essai gratuit comprend les bases : te téléporter n'importe où, tes favoris et revenir à ta vraie position. Abonne-toi maintenant pour tout débloquer tout de suite.")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(unlocked, id: \.1) { item in
+                            Label(item.1, systemImage: item.0)
+                                .font(.subheadline.weight(.semibold))
+                        }
+                    }
+                    Link(destination: buyURL) {
+                        Text("Passer à l'abonnement maintenant")
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    Text("Ton essai s'arrête et le paiement démarre aujourd'hui : rien n'est prélevé deux fois. Sans engagement, résiliable à tout moment.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(20)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Continuer l'essai", action: onClose)
                 }
             }
         }
