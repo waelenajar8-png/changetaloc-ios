@@ -33,6 +33,8 @@ final class AccountStore: ObservableObject {
     @Published private(set) var email: String?
     @Published private(set) var status: String?
     @Published private(set) var trialSecondsLeft: Int?
+    /// L'essai est un compte à rebours qui démarre à la première téléportation, puis continue même position réelle.
+    @Published private(set) var trialStarted = false
     @Published private(set) var buyURL: URL = AccountStore.defaultBuyURL
     @Published private(set) var isWorking = false
 
@@ -109,6 +111,8 @@ final class AccountStore: ObservableObject {
         let simulating = LocationSimulationSession.shared.isActive
         if simulating {
             pendingSeconds += Int(tickInterval)
+        }
+        if simulating || trialStarted {
             if status == "trialing", let left = trialSecondsLeft {
                 trialSecondsLeft = max(left - Int(tickInterval), 0)
                 // On mémorise le décompte : couper le réseau ou relancer l'app ne remet pas l'essai à zéro.
@@ -197,6 +201,7 @@ final class AccountStore: ObservableObject {
         let access = json["access"] as? Bool ?? false
         let newStatus = json["status"] as? String
         let left = json["trial_seconds_left"] as? Int
+        trialStarted = json["trial_started"] as? Bool ?? false
         status = newStatus
         trialSecondsLeft = left
         if let text = json["buy_url"] as? String, let url = URL(string: text), url.host == Self.siteURL.host {
