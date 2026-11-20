@@ -97,7 +97,7 @@ private struct LoginView: View {
     @State private var password = ""
     @State private var code = ""
     /// Par défaut : connexion par code reçu par e-mail (pas de mot de passe à créer). Le mot de passe reste possible.
-    @State private var withPassword = false
+    @State private var withPassword = true
     @State private var codeSent = false
     @State private var errorMessage: String?
     @State private var infoMessage: String?
@@ -120,7 +120,7 @@ private struct LoginView: View {
         GateBackground {
             ScrollView {
                 VStack(spacing: 28) {
-                    BrandHeader(subtitle: withPassword ? "Connecte-toi avec ton compte ChangeTaLoc." : "Entre l'e-mail utilisé au paiement : on t'envoie un code.")
+                    BrandHeader(subtitle: withPassword ? "Connecte-toi avec l'e-mail et le mot de passe de ton compte ChangeTaLoc." : "Entre l'e-mail utilisé au paiement : on t'envoie un code.")
                         .padding(.top, 56)
 
                     VStack(spacing: 12) {
@@ -180,7 +180,7 @@ private struct LoginView: View {
                                 errorMessage = nil
                             }
                         }
-                        Button(withPassword ? "Me connecter avec un code par e-mail" : "J'ai un mot de passe") {
+                        Button(withPassword ? "Pas de mot de passe ? Recevoir un code par e-mail" : "Me connecter avec mon mot de passe") {
                             withPassword.toggle()
                             codeSent = false
                             code = ""
